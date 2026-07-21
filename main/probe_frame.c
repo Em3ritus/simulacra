@@ -117,14 +117,17 @@ static void patch_ds_channel(uint8_t *body, uint16_t len, uint8_t ch)
 }
 
 int probe_build_request(const uint8_t mac[6], uint8_t ch, probe_arch_t arch, bool band5,
-                        uint8_t *out, size_t *out_len)
+                        const char *ssid, uint8_t ssid_len, uint8_t *out, size_t *out_len)
 {
     const probe_archetype_t *a = probe_archetype(arch);
     if (!a) return 1;
     const uint8_t *tail = band5 ? a->tail5 : a->tail24;
     uint16_t tlen       = band5 ? a->tail5_len : a->tail24_len;
     if (!tail || tlen == 0) return 2;                 // archetype lacks this band
-    if (24u + tlen > PROBE_FRAME_MAX) return 3;
+    if (ssid == 0) ssid_len = 0;                      // NULL -> wildcard
+    if (ssid_len > 32) return 4;                      // 802.11 SSID element max
+    // body = SSID element (2 + ssid_len) + the archetype tail AFTER its placeholder SSID (tlen - 2)
+    if (24u + (uint32_t)tlen + (uint32_t)ssid_len > PROBE_FRAME_MAX) return 3;
 
     uint8_t *p = out;
     *p++ = 0x40; *p++ = 0x00;                          // frame control: mgmt/probe-req
@@ -133,8 +136,10 @@ int probe_build_request(const uint8_t mac[6], uint8_t ch, probe_arch_t arch, boo
     memcpy(p, mac, 6); p += 6;                         // SA = our randomized MAC
     memset(p, 0xff, 6); p += 6;                        // BSSID broadcast
     *p++ = 0x00; *p++ = 0x00;                          // seq control (driver overwrites)
-    memcpy(p, tail, tlen); p += tlen;                  // archetype IE body
-    patch_ds_channel(out + 24, tlen, ch);
+    *p++ = 0x00; *p++ = ssid_len;                      // SSID element: wildcard (0) or directed
+    if (ssid_len) { memcpy(p, ssid, ssid_len); p += ssid_len; }
+    memcpy(p, tail + 2, (size_t)(tlen - 2)); p += (tlen - 2);   // tail after its placeholder SSID
+    patch_ds_channel(out + 24, (uint16_t)(2u + ssid_len + (tlen - 2)), ch);
     *out_len = (size_t)(p - out);
     return 0;
 }

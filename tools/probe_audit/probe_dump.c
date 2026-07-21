@@ -226,10 +226,12 @@ int main(int argc, char **argv)
     probe_arch_t a = (argc > 1) ? (probe_arch_t)strtoul(argv[1], 0, 10) : ARCH_IPHONE;
     unsigned ch    = (argc > 2) ? (unsigned)strtoul(argv[2], 0, 10) : 6;
     bool band5     = (argc > 3) ? (strtoul(argv[3], 0, 10) != 0) : false;
+    const char *ssid = (argc > 4) ? argv[4] : 0;                 // optional directed SSID
+    uint8_t ssid_len = ssid ? (uint8_t)strlen(ssid) : 0;
 
     uint8_t mac[6] = { 0x02, 0x11, 0x22, 0x33, 0x44, 0x55 };
     uint8_t f[PROBE_FRAME_MAX]; size_t n = 0;
-    if (probe_build_request(mac, (uint8_t)ch, a, band5, f, &n)) {
+    if (probe_build_request(mac, (uint8_t)ch, a, band5, ssid, ssid_len, f, &n)) {
         fprintf(stderr, "build failed (arch=%u band5=%d)\n", a, band5);
         return 2;
     }

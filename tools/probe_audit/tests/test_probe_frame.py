@@ -6,8 +6,11 @@ TOOL = os.path.dirname(HERE)
 EXE  = os.path.join(TOOL, "probe_dump.exe" if os.name == "nt" else "probe_dump")
 
 
-def build_arch(idx, ch, b5):
-    out = subprocess.check_output([EXE, str(idx), str(ch), str(b5)], text=True).strip()
+def build_arch(idx, ch, b5, ssid=None):
+    args = [EXE, str(idx), str(ch), str(b5)]
+    if ssid is not None:
+        args.append(ssid)
+    out = subprocess.check_output(args, text=True).strip()
     return bytes.fromhex(out)
 
 
@@ -60,6 +63,23 @@ class ProbeFrame(unittest.TestCase):
                 self.assertIn(0xbf, d, f"{name} VHT caps on 5 GHz")
         self.assertNotIn(0xff, ies(build_arch(3, 6, 0)), "generic android 2.4 omits HE (diversity)")
         self.assertIn(0xff, ies(build_arch(0, 6, 0)), "iphone 2.4 carries HE")
+
+    def test_directed_ssid_element_present(self):
+        f = build_arch(0, 6, 0, "xfinitywifi")           # iphone 2.4, named
+        d = ies(f)
+        self.assertIn(0x00, d, "SSID element present")
+        self.assertEqual(d[0x00], b"xfinitywifi", "directed SSID bytes emitted")
+        self.assertEqual(d[0x03], bytes([6]), "DS channel still patched with a directed SSID")
+        self.assertLessEqual(len(f), 256)
+
+    def test_directed_body_matches_wildcard_after_ssid(self):
+        # Everything after the SSID element must be identical to the wildcard frame's body-after-SSID.
+        wild = build_arch(0, 6, 0)
+        named = build_arch(0, 6, 0, "attwifi")
+        # wildcard SSID element is 2 bytes (0x00,0x00) at body offset 0; directed is 2+len(name).
+        wild_after  = wild[24 + 2:]
+        named_after = named[24 + 2 + len("attwifi"):]
+        self.assertEqual(named_after, wild_after, "IE body after SSID diverged")
 
     def test_matches_fixture(self):
         for name, idx, ch, b5, fx in CASES:
