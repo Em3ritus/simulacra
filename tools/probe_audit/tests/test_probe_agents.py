@@ -80,8 +80,13 @@ class Births(unittest.TestCase):
         macs = [r[3] for r in recs]
         self.assertEqual(len(macs), len(set(macs)), "a birth reused a MAC (uniqueness broken)")
 
-    def test_wildcard_flag_is_one_today(self):
-        self.assertTrue(all(r[2] == 1 for r in births(3)))       # all probes wildcard today
+    def test_wildcard_flag_reflects_assignment(self):
+        # ~SSID_ASSIGN_PCT (62%) of identities get a named set -> ~38% stay wildcard (field==1).
+        recs = births(3)
+        wc = sum(1 for r in recs if r[2] == 1) / len(recs)
+        self.assertGreater(wc, 0.28, "far too many named (assignment rate too high)")
+        self.assertLess(wc, 0.50, "far too few named (assignment rate too low)")
+        self.assertTrue(all(r[2] in (0, 1) for r in recs), "wildcard field not 0/1")
 
     def test_archetypes_in_range(self):
         self.assertTrue(all(0 <= r[0] < 4 for r in births(4)))   # PROBE_ARCH_COUNT == 4
@@ -91,6 +96,21 @@ class Births(unittest.TestCase):
         per_arch = Counter(r[0] for r in births(5, ticks=2000, tick_ms=2000))
         self.assertTrue(any(v >= 3 for v in per_arch.values()),
                         "no archetype churned multiple MACs (multiplicity axis would be empty)")
+
+
+@unittest.skipUnless(os.path.exists(EXE), "probe_dump not built")
+class WildcardCalibration(unittest.TestCase):
+    def test_decoy_wildcard_fraction_in_target_band(self):
+        # The whole point of the feature: device-level wildcard fraction drops from 1.0 toward the
+        # measured real anchor (~0.36). Uses the same profiler the scorecard uses.
+        import importlib.util
+        scorecard = os.path.join(TOOL, "probe_behavior_scorecard.py")
+        spec = importlib.util.spec_from_file_location("pbs", scorecard)
+        S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
+        rows = S.run_decoy_model(EXE, 1, 16, 2220, 1000)
+        wf = S.decoy_profile_from_agents(rows)["wildcard_fraction"]
+        self.assertGreater(wf, 0.28, f"wildcard_fraction {wf:.3f} below band (too many named)")
+        self.assertLess(wf, 0.50, f"wildcard_fraction {wf:.3f} above band (too few named)")
 
 
 if __name__ == "__main__":

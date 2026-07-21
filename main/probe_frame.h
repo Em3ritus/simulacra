@@ -24,9 +24,10 @@ const  probe_archetype_t *probe_archetype(probe_arch_t a);   // NULL if out of r
 size_t probe_archetype_count(void);
 probe_arch_t probe_pick_archetype(void);                     // weighted draw (uses esp_random)
 
-// Build a broadcast (wildcard-SSID) probe request for source `mac` on `ch`, using archetype
-// `arch`'s per-band IE set. band5 selects the 5 GHz tail. Writes the 802.11 frame to out
-// (<= PROBE_FRAME_MAX) and its length. Returns 0 on success; non-zero if arch lacks that band
-// or the frame would overflow.
+// Build a probe request for source `mac` on `ch`, using archetype `arch`'s per-band IE set. band5
+// selects the 5 GHz tail. `ssid`/`ssid_len` give an optional directed SSID: pass NULL/0 for the
+// wildcard broadcast probe (output then byte-identical to the historical wildcard-only builder).
+// Writes the 802.11 frame to out (<= PROBE_FRAME_MAX) and its length. Returns 0 on success; 1 bad
+// arch, 2 arch lacks that band, 3 frame overflow, 4 ssid_len exceeds the 802.11 SSID max (32).
 int    probe_build_request(const uint8_t mac[6], uint8_t ch, probe_arch_t arch, bool band5,
-                           uint8_t *out, size_t *out_len);
+                           const char *ssid, uint8_t ssid_len, uint8_t *out, size_t *out_len);

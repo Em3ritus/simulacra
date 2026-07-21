@@ -6,6 +6,7 @@
 #include "uniq_id.h"
 #include "phantom.h"
 #include "wifi_density.h"
+#include "ssid_pool.h"
 
 /*
  * Host dumper for the probe-request archetype builder.
@@ -113,10 +114,10 @@ int main(int argc, char **argv)
         probe_agents_init(nag, t);
         uint32_t last_born[PROBE_AGENTS_MAX];
         for (int i = 0; i < PROBE_AGENTS_MAX; i++) last_born[i] = 0u;
-        // A record: one per (re)born agent identity -> arch, born_ms, wildcard(=1 today), mac
+        // A record: one per (re)born agent identity -> arch, born_ms, wildcard(1=wildcard-only life), mac
         for (int i = 0; i < probe_agents_count(); i++) {
             const probe_agent_t *a = probe_agents_at(i);
-            printf("A %d %u 1 ", (int)a->arch, (unsigned)a->born_ms);
+            printf("A %d %u %d ", (int)a->arch, (unsigned)a->born_ms, (a->ssid_n == 0) ? 1 : 0);
             for (int b = 0; b < 6; b++) printf("%02x", a->mac[b]);
             printf("\n");
             last_born[i] = a->born_ms;
@@ -127,7 +128,7 @@ int main(int argc, char **argv)
             for (int i = 0; i < probe_agents_count(); i++) {
                 const probe_agent_t *a = probe_agents_at(i);
                 if (a->born_ms != last_born[i]) {               // reincarnated this tick
-                    printf("A %d %u 1 ", (int)a->arch, (unsigned)a->born_ms);
+                    printf("A %d %u %d ", (int)a->arch, (unsigned)a->born_ms, (a->ssid_n == 0) ? 1 : 0);
                     for (int b = 0; b < 6; b++) printf("%02x", a->mac[b]);
                     printf("\n");
                     last_born[i] = a->born_ms;
@@ -200,6 +201,54 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (argc > 1 && strcmp(argv[1], "--ssidburst") == 0) {
+        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int n         = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 16;
+        int bursts    = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 50;
+        srand(seed);
+        probe_agents_init(n, 0);
+        for (int i = 0; i < probe_agents_count(); i++) {
+            const probe_agent_t *a = probe_agents_at(i);
+            int named = 0; uint8_t L;
+            for (int b = 0; b < bursts; b++) if (probe_agent_pick_ssid(a, &L)) named++;
+            printf("%d %d %d\n", i, (int)a->ssid_n, named);   // agent, assigned count, # named of `bursts`
+        }
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "--ssidstable") == 0) {
+        unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int n         = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 16;
+        srand(seed);
+        probe_agents_init(n, 0);
+        for (int i = 0; i < n; i++) probe_agent_sync(i, probe_pick_archetype(), 0, 2400000u, 1); // 40min bound
+        for (int phase = 0; phase < 2; phase++) {
+            if (phase == 1) probe_agents_lifecycle(600000u);  // 10 min: past the 8-15min rotation floor
+            for (int i = 0; i < probe_agents_count(); i++) {
+                const probe_agent_t *a = probe_agents_at(i);
+                printf("%c %d %d", phase ? 'A' : 'B', i, (int)a->ssid_n);
+                for (int j = 0; j < a->ssid_n; j++) printf(" %d", (int)a->ssid_idx[j]);
+                printf(" ");
+                for (int b = 0; b < 6; b++) printf("%02x", a->mac[b]);
+                printf("\n");
+            }
+        }
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "--ssidpool") == 0) {
+        if (argc > 2) {                                  // weighted-pick histogram: --ssidpool <seed> <n>
+            srand((unsigned)strtoul(argv[2], 0, 10));
+            int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 10000;
+            for (int i = 0; i < n; i++) printf("%d\n", ssid_pool_pick_weighted());
+            return 0;
+        }
+        printf("%d\n", ssid_pool_count());               // no args: count, then "<len> <name>" per entry
+        for (int i = 0; i < ssid_pool_count(); i++) {
+            uint8_t L = 0; const char *s = ssid_pool_at(i, &L);
+            printf("%d %s\n", (int)L, s);
+        }
+        return 0;
+    }
+
     if (argc > 1 && strcmp(argv[1], "--pick") == 0) {
         srand(argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1);
         int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 1000;
@@ -210,10 +259,12 @@ int main(int argc, char **argv)
     probe_arch_t a = (argc > 1) ? (probe_arch_t)strtoul(argv[1], 0, 10) : ARCH_IPHONE;
     unsigned ch    = (argc > 2) ? (unsigned)strtoul(argv[2], 0, 10) : 6;
     bool band5     = (argc > 3) ? (strtoul(argv[3], 0, 10) != 0) : false;
+    const char *ssid = (argc > 4) ? argv[4] : 0;                 // optional directed SSID
+    uint8_t ssid_len = ssid ? (uint8_t)strlen(ssid) : 0;
 
     uint8_t mac[6] = { 0x02, 0x11, 0x22, 0x33, 0x44, 0x55 };
     uint8_t f[PROBE_FRAME_MAX]; size_t n = 0;
-    if (probe_build_request(mac, (uint8_t)ch, a, band5, f, &n)) {
+    if (probe_build_request(mac, (uint8_t)ch, a, band5, ssid, ssid_len, f, &n)) {
         fprintf(stderr, "build failed (arch=%u band5=%d)\n", a, band5);
         return 2;
     }
