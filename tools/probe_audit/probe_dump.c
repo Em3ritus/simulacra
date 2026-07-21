@@ -6,6 +6,7 @@
 #include "uniq_id.h"
 #include "phantom.h"
 #include "wifi_density.h"
+#include "ssid_pool.h"
 
 /*
  * Host dumper for the probe-request archetype builder.
@@ -196,6 +197,21 @@ int main(int argc, char **argv)
                     printf(" %d %u\n", (int)a->arch, (unsigned)a->persona_gen);
                 }
             }
+        }
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--ssidpool") == 0) {
+        if (argc > 2) {                                  // weighted-pick histogram: --ssidpool <seed> <n>
+            srand((unsigned)strtoul(argv[2], 0, 10));
+            int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 10000;
+            for (int i = 0; i < n; i++) printf("%d\n", ssid_pool_pick_weighted());
+            return 0;
+        }
+        printf("%d\n", ssid_pool_count());               // no args: count, then "<len> <name>" per entry
+        for (int i = 0; i < ssid_pool_count(); i++) {
+            uint8_t L = 0; const char *s = ssid_pool_at(i, &L);
+            printf("%d %s\n", (int)L, s);
         }
         return 0;
     }
