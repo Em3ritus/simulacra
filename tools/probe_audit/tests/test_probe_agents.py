@@ -98,5 +98,20 @@ class Births(unittest.TestCase):
                         "no archetype churned multiple MACs (multiplicity axis would be empty)")
 
 
+@unittest.skipUnless(os.path.exists(EXE), "probe_dump not built")
+class WildcardCalibration(unittest.TestCase):
+    def test_decoy_wildcard_fraction_in_target_band(self):
+        # The whole point of the feature: device-level wildcard fraction drops from 1.0 toward the
+        # measured real anchor (~0.36). Uses the same profiler the scorecard uses.
+        import importlib.util
+        scorecard = os.path.join(TOOL, "probe_behavior_scorecard.py")
+        spec = importlib.util.spec_from_file_location("pbs", scorecard)
+        S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
+        rows = S.run_decoy_model(EXE, 1, 16, 2220, 1000)
+        wf = S.decoy_profile_from_agents(rows)["wildcard_fraction"]
+        self.assertGreater(wf, 0.28, f"wildcard_fraction {wf:.3f} below band (too many named)")
+        self.assertLess(wf, 0.50, f"wildcard_fraction {wf:.3f} above band (too few named)")
+
+
 if __name__ == "__main__":
     unittest.main()

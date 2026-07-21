@@ -116,7 +116,9 @@ int probe_inject_burst(uint8_t channel)
     int rc = 0, sent = 0;
     for (int i = 0; i < nd; i++) {
         uint8_t f[PROBE_FRAME_MAX]; size_t n = 0;
-        if (probe_build_request(due[i]->mac, channel, due[i]->arch, band5, NULL, 0, f, &n) != 0)
+        uint8_t slen = 0;
+        const char *ssid = probe_agent_pick_ssid(due[i], &slen);   // per-burst wildcard-vs-named
+        if (probe_build_request(due[i]->mac, channel, due[i]->arch, band5, ssid, slen, f, &n) != 0)
             continue;                                           // archetype lacks this band (defensive)
         uint16_t sc = (uint16_t)(probe_agent_next_seq(due[i]) << 4);   // seq -> bits 4..15, frag=0
         f[22] = (uint8_t)(sc & 0xFF);
