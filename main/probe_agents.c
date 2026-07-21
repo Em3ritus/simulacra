@@ -1,5 +1,6 @@
 #include "probe_agents.h"
 #include "esp_random.h"
+#include "ssid_pool.h"
 #include <string.h>
 
 #define LIFE_MIN_MS    60000u    // 1 min
@@ -10,12 +11,29 @@
 #define IDLE_MAX_MS    180000u
 #define PERSONA_MAC_ROT_MIN_MS 480000u   // 8 min  (Wi-Fi MAC intra-life rotation, fast-realistic)
 #define PERSONA_MAC_ROT_MAX_MS 900000u   // 15 min
+#define SSID_ASSIGN_PCT      62   // % of personas that get a named-SSID set (rest wildcard for life)
+#define SSID_BURST_NAMED_PCT 60   // for an assigned persona, % of bursts that name a network (on-air realism)
 
 static probe_agent_t s_agents[PROBE_AGENTS_MAX];
 static int           s_n;
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
 static uint32_t persona_mac_rotate_base(void) { return rnd_range(PERSONA_MAC_ROT_MIN_MS, PERSONA_MAC_ROT_MAX_MS); }
+
+// Draw this persona's saved-network set ONCE (called only from birth sites). ~SSID_ASSIGN_PCT of
+// personas get 1..AGENT_SSID_MAX distinct pool entries; the rest stay wildcard-only for their life.
+static void assign_ssids(probe_agent_t *a)
+{
+    a->ssid_n = 0;
+    if ((esp_random() % 100u) >= SSID_ASSIGN_PCT) return;         // wildcard-only persona
+    int want = 1 + (int)(esp_random() % (uint32_t)AGENT_SSID_MAX);
+    for (int tries = 0; tries < 16 && a->ssid_n < want; tries++) {
+        int idx = ssid_pool_pick_weighted();
+        int dup = 0;
+        for (int j = 0; j < a->ssid_n; j++) if (a->ssid_idx[j] == (uint8_t)idx) dup = 1;
+        if (!dup) a->ssid_idx[a->ssid_n++] = (uint8_t)idx;
+    }
+}
 
 static void agent_spawn(probe_agent_t *a, uint32_t now_ms)
 {
@@ -30,6 +48,7 @@ static void agent_spawn(probe_agent_t *a, uint32_t now_ms)
                                              : rnd_range(IDLE_MIN_MS, IDLE_MAX_MS);
     a->next_scan_ms = now_ms + (esp_random() % base);            // random phase-in (not all due at once)
     a->next_mac_rotate_ms = now_ms + persona_mac_rotate_base();
+    assign_ssids(a);
 }
 
 void probe_agents_init(int n, uint32_t now_ms)
@@ -115,5 +134,15 @@ int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_m
                                               : rnd_range(IDLE_MIN_MS, IDLE_MAX_MS);
     a->next_scan_ms = born_ms + (esp_random() % base);
     a->next_mac_rotate_ms = born_ms + persona_mac_rotate_base();
+    assign_ssids(a);
     return 1;
+}
+
+const char *probe_agent_pick_ssid(const probe_agent_t *a, uint8_t *len_out)
+{
+    if (len_out) *len_out = 0;
+    if (a->ssid_n == 0) return 0;                                // wildcard-only persona
+    if ((esp_random() % 100u) >= SSID_BURST_NAMED_PCT) return 0; // this burst is wildcard
+    uint8_t which = (uint8_t)(esp_random() % a->ssid_n);
+    return ssid_pool_at(a->ssid_idx[which], len_out);            // one of its OWN assigned names
 }

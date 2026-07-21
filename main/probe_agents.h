@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "probe_frame.h"
+#include "ssid_pool.h"
+#define AGENT_SSID_MAX 3        // a real phone's active saved-network set is small
 
 // Independent fake-phone "agents". Each owns its identity (MAC + archetype), its own 802.11
 // sequence counter, a jittered scan schedule, and a bounded lifetime. The population turns over
@@ -22,6 +24,8 @@ typedef struct {
     uint32_t     life_ms;       // bounded lifetime; on expiry the agent dies + reincarnates
     bool         alive;
     uint32_t     persona_gen;   // generation of the phantom this agent is bound to (0 = unbound)
+    uint8_t      ssid_n;                    // # assigned named SSIDs; 0 = wildcard-only for this life
+    uint8_t      ssid_idx[AGENT_SSID_MAX];  // indices into ssid_pool (assigned once per life)
 } probe_agent_t;
 
 void     probe_agents_init(int n, uint32_t now_ms);          // (re)seed n agents (<= PROBE_AGENTS_MAX)
@@ -39,3 +43,8 @@ const probe_agent_t *probe_agents_at(int i);
 // shared born/life. Returns 1 if reincarnated this call, else 0. Bound agents do NOT expire via
 // probe_agents_lifecycle; the persona owns their lifetime.
 int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_ms, uint32_t generation);
+
+// Choose this burst's SSID for agent a: a pool string (sets *len_out) to probe a NAMED network, or
+// NULL (*len_out=0) for a wildcard burst. Agents with ssid_n==0 always return NULL. Pure; uses
+// esp_random for the per-burst wildcard-vs-named roll. Does not mutate the agent.
+const char *probe_agent_pick_ssid(const probe_agent_t *a, uint8_t *len_out);

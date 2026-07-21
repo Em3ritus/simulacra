@@ -80,8 +80,13 @@ class Births(unittest.TestCase):
         macs = [r[3] for r in recs]
         self.assertEqual(len(macs), len(set(macs)), "a birth reused a MAC (uniqueness broken)")
 
-    def test_wildcard_flag_is_one_today(self):
-        self.assertTrue(all(r[2] == 1 for r in births(3)))       # all probes wildcard today
+    def test_wildcard_flag_reflects_assignment(self):
+        # ~SSID_ASSIGN_PCT (62%) of identities get a named set -> ~38% stay wildcard (field==1).
+        recs = births(3)
+        wc = sum(1 for r in recs if r[2] == 1) / len(recs)
+        self.assertGreater(wc, 0.28, "far too many named (assignment rate too high)")
+        self.assertLess(wc, 0.50, "far too few named (assignment rate too low)")
+        self.assertTrue(all(r[2] in (0, 1) for r in recs), "wildcard field not 0/1")
 
     def test_archetypes_in_range(self):
         self.assertTrue(all(0 <= r[0] < 4 for r in births(4)))   # PROBE_ARCH_COUNT == 4
