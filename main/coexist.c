@@ -269,10 +269,14 @@ static void coexist_task(void *arg)
         }
         if (d.fire_reprofile) {
             coexist_reprofile(p);                                   // BLE population-match (may early-return)
-            int wt = s_wifi_obs_ok ? wifi_obs_target(now) : WIFI_OBS_FALLBACK;
-            probe_agents_set_target(fleet_pop_share_k(wt, fleet_pop_live_size(now)), now);  // live /K
-            ESP_LOGW(TAG, "wifi popmatch: density=%d -> agents=%d%s",
-                     s_wifi_obs_ok ? wifi_obs_density(now) : -1, wt, s_wifi_obs_ok ? "" : " (fallback)");
+            int wt      = s_wifi_obs_ok ? wifi_obs_target(now) : WIFI_OBS_FALLBACK;
+            int k       = fleet_pop_live_size(now);                 // live fleet size (peers heard + self)
+            int agents  = fleet_pop_share_k(wt, k);                 // this node's share of the crowd target
+            probe_agents_set_target(agents, now);
+            // Log the APPLIED target + the divisor so the live census is observable (wt is pre-division).
+            ESP_LOGW(TAG, "wifi popmatch: density=%d wt=%d /nodes=%d -> agents=%d%s",
+                     s_wifi_obs_ok ? wifi_obs_density(now) : -1, wt, k, agents,
+                     s_wifi_obs_ok ? "" : " (fallback)");
         }
         if (s_listen_ch >= 0 && s_wifi_ok)                       // espnow: park on the listen channel between bursts
             esp_wifi_set_channel((uint8_t)s_listen_ch, WIFI_SECOND_CHAN_NONE);
