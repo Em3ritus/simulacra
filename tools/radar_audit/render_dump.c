@@ -1,0 +1,51 @@
+// Render smoke/text harness for the CYD dashboard views. Compiles radar_render.c ALONE by stubbing
+// every gfx/geom/sigil primitive: text calls print "TXT <x> <y> <str>", the rest are no-ops. This
+// lets host tests assert WHAT TEXT a view draws (e.g. the shade-form breakdown on STATS) without a
+// pixel framebuffer. One full-height band so each draw_* runs exactly once.
+//
+//   render_dump <view> [restless wandering bound active_devices roster target threat_count]
+//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include "radar_render.h"
+#include "radar_sigil.h"
+
+// --- stubbed primitives (no framebuffer; capture text only) ---
+void radar_gfx_clear(radar_gfx_t *g, uint16_t c) { (void)g; (void)c; }
+void radar_gfx_pixel(radar_gfx_t *g, int x, int y, uint16_t c) { (void)g; (void)x; (void)y; (void)c; }
+void radar_gfx_hline(radar_gfx_t *g, int a, int b, int y, uint16_t c) { (void)g;(void)a;(void)b;(void)y;(void)c; }
+void radar_gfx_vline(radar_gfx_t *g, int x, int a, int b, uint16_t c) { (void)g;(void)x;(void)a;(void)b;(void)c; }
+void radar_gfx_line(radar_gfx_t *g, int x0, int y0, int x1, int y1, uint16_t c) { (void)g;(void)x0;(void)y0;(void)x1;(void)y1;(void)c; }
+void radar_gfx_fill_rect(radar_gfx_t *g, int x, int y, int w, int h, uint16_t c) { (void)g;(void)x;(void)y;(void)w;(void)h;(void)c; }
+void radar_gfx_circle(radar_gfx_t *g, int cx, int cy, int r, uint16_t c) { (void)g;(void)cx;(void)cy;(void)r;(void)c; }
+void radar_gfx_text(radar_gfx_t *g, int x, int y, const char *s, uint16_t c) { (void)g; (void)c; printf("TXT %d %d %s\n", x, y, s); }
+uint16_t radar_rssi_to_radius(int8_t rssi, uint16_t lo, uint16_t hi) { (void)rssi; (void)hi; return lo; }
+uint16_t radar_hash_to_angle(uint32_t h) { (void)h; return 0; }
+void radar_polar_to_xy(int cx, int cy, uint16_t r, uint16_t a, int *x, int *y) { (void)r; (void)a; *x = cx; *y = cy; }
+void radar_sigil_draw(radar_gfx_t *g, sigil_id_t id, int cx, int cy, int r, uint16_t c) { (void)g;(void)id;(void)cx;(void)cy;(void)r;(void)c; }
+
+static void flush_noop(int y0, int h, const uint16_t *buf, void *ctx) { (void)y0; (void)h; (void)buf; (void)ctx; }
+
+int main(int argc, char **argv)
+{
+    int view = argc > 1 ? atoi(argv[1]) : RADAR_VIEW_STATS;
+    radar_wire_status_t st; memset(&st, 0, sizeof st);
+    if (argc > 2) st.form_restless  = (uint8_t)atoi(argv[2]);
+    if (argc > 3) st.form_wandering = (uint8_t)atoi(argv[3]);
+    if (argc > 4) st.form_bound     = (uint8_t)atoi(argv[4]);
+    if (argc > 5) st.active_devices = (uint8_t)atoi(argv[5]);
+    if (argc > 6) st.roster_size    = (uint8_t)atoi(argv[6]);
+    if (argc > 7) st.active_target  = (uint8_t)atoi(argv[7]);
+    if (argc > 8) st.threat_count   = (uint8_t)atoi(argv[8]);
+
+    radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
+    radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
+    radar_node_view_t nodes[1] = { { 0, &st, true } };
+
+    static uint16_t band[240 * 320];
+    // One full-height band: each draw_* runs once, so text is emitted a single time.
+    radar_render_view((radar_view_t)view, &st, nodes, 1, &lib, &ctrl, 0,
+                      band, 320, 240, 320, flush_noop, NULL);
+    return 0;
+}

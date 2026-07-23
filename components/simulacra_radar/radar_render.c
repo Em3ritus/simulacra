@@ -64,6 +64,8 @@ static void draw_stats(radar_gfx_t *g, const radar_wire_status_t *st){
     char l[40]; int y=6; radar_gfx_text(g,8,y,"DECOY / POP",COL_FG); y+=24;
     #define ROW(...) do{ snprintf(l,sizeof l,__VA_ARGS__); radar_gfx_text(g,6,y,l,COL_DIM); y+=18; }while(0)
     ROW("decoys %u/%u tgt %u",(unsigned)st->active_devices,(unsigned)st->roster_size,(unsigned)st->active_target);
+    // Shade-form breakdown (Milestone-A showcase): BLE privacy-address split rpa/nrpa/static.
+    ROW("rpa %u nrpa %u static %u",(unsigned)st->form_restless,(unsigned)st->form_wandering,(unsigned)st->form_bound);
     ROW("pop %u obs %lu",(unsigned)st->pop_ewma,(unsigned long)st->total_obs);
     ROW("epoch %u probes %lu",(unsigned)st->epoch,(unsigned long)st->probes_sent);
     ROW("churn %s",(st->flags&0x1)?"PAUSED":"run");
