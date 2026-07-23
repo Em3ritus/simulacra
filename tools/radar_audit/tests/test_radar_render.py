@@ -80,6 +80,32 @@ def view_texts(view, uptime=0):
     return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
 
 
+def followers(threats=0, esc=0):
+    out = subprocess.check_output(
+        [EXE, "2", "0", "0", "0", "8", "16", "8", str(threats), "0", str(esc), "0"], text=True)
+    return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class FollowersList(unittest.TestCase):
+    def test_empty_says_none(self):
+        self.assertTrue(any("none" in t.lower() for t in followers(0)))
+
+    def test_summary_counts_flagged(self):
+        t = followers(threats=3, esc=1)   # 3 recurring -> all flagged
+        self.assertTrue(any("3 seen" in x for x in t), f"no summary; drew: {t}")
+        self.assertTrue(any("3 flagged" in x for x in t), f"flagged count wrong; drew: {t}")
+
+    def test_new_threats_not_flagged_and_labeled_new(self):
+        t = followers(threats=2, esc=0)   # NEW -> 0 flagged, rows read "new"
+        self.assertTrue(any("0 flagged" in x for x in t), f"NEW should be 0 flagged; drew: {t}")
+        self.assertTrue(any(x == "new" for x in t), f"NEW row not labeled; drew: {t}")
+
+    def test_one_row_per_threat(self):
+        t = followers(threats=4, esc=1)   # hash 0 -> name "00000000"
+        self.assertGreaterEqual(sum(1 for x in t if x == "00000000"), 4, f"missing rows; drew: {t}")
+
+
 @unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
 class DataPageLayout(unittest.TestCase):
     def test_library_grouped_into_sections(self):

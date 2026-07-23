@@ -75,21 +75,33 @@ static void draw_radar(radar_gfx_t *g, const radar_wire_status_t *st, uint16_t s
 }
 static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
     draw_header(g,"FOLLOWERS");
-    if(st->threat_count==0){ radar_gfx_text(g,8,34,"none confirmed",COL_DIM); return; }
-    for(uint8_t i=0;i<st->threat_count;i++){ char r[48];
-        detect_escalation_t e = threat_escalation_level(st->threats[i].sessions_seen, st->threats[i].places_seen);
-        char tag = escalation_name(e)[0];   // N / R / P
-        if(st->threats[i].kind==DETECT_KIND_KNOWN){
-            const char *q = st->threats[i].confidence>=80 ? "likely" : "possible";
-            snprintf(r,sizeof r,"%s %s %ddB %c%u/%u",sig_class_name(st->threats[i].class_id),q,
-                     (int)st->threats[i].best_rssi,tag,
-                     (unsigned)st->threats[i].sessions_seen,(unsigned)st->threats[i].places_seen);
-        } else {
-            snprintf(r,sizeof r,"%08lx %ddB %c%u/%u",(unsigned long)st->threats[i].hash,
-                     (int)st->threats[i].best_rssi,tag,
-                     (unsigned)st->threats[i].sessions_seen,(unsigned)st->threats[i].places_seen);
-        }
-        radar_gfx_text(g,6,34+i*18,r,escalation_color(e)); } }
+    if(st->threat_count==0){ radar_gfx_text(g,16,40,"none detected",COL_ASH); return; }
+    // summary: total seen + how many escalated past NEW (recurring/persistent = "flagged")
+    int flagged=0;
+    for(uint8_t i=0;i<st->threat_count;i++)
+        if(threat_escalation_level(st->threats[i].sessions_seen,st->threats[i].places_seen)!=ESCALATION_NEW) flagged++;
+    char s[32]; snprintf(s,sizeof s,"%u seen  %d flagged",(unsigned)st->threat_count,flagged);
+    radar_gfx_text(g,8,34,s,COL_ASH);
+    radar_gfx_hline(g,8,231,50,COL_EDGE);
+    // one clean row per threat: [escalation dot] name   recurrence ........ rssi
+    int y=58;
+    for(uint8_t i=0;i<st->threat_count && y<310;i++){
+        detect_escalation_t e = threat_escalation_level(st->threats[i].sessions_seen,st->threats[i].places_seen);
+        uint16_t c = escalation_color(e);
+        radar_gfx_fill_rect(g,8,y+2,6,6,c);                        // escalation dot (arcane/amber/red)
+        char name[16];
+        if(st->threats[i].kind==DETECT_KIND_KNOWN) snprintf(name,sizeof name,"%s",sig_class_name(st->threats[i].class_id));
+        else snprintf(name,sizeof name,"%08lx",(unsigned long)st->threats[i].hash);
+        radar_gfx_text(g,20,y,name,c);
+        char rec[12];
+        if(e==ESCALATION_NEW) snprintf(rec,sizeof rec,"new");
+        else snprintf(rec,sizeof rec,"%up %us",(unsigned)st->threats[i].places_seen,(unsigned)st->threats[i].sessions_seen);
+        radar_gfx_text(g,112,y,rec,COL_ASH);
+        char r[12]; snprintf(r,sizeof r,"%ddB",(int)st->threats[i].best_rssi);
+        radar_gfx_text(g,224-(int)strlen(r)*8,y,r,COL_ASH);        // rssi, right-aligned
+        y+=18;
+    }
+}
 // --- shared data-page primitives: section headers + aligned label/value rows ------------------
 static void fmt_uptime(char *out, size_t n, uint32_t s){    // 47143s -> "13h 5m"; keeps the panel legible
     if (s < 3600)       snprintf(out, n, "%um", (unsigned)(s / 60));
