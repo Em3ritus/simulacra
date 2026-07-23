@@ -2,6 +2,10 @@
 """Extract legacy BLE advertising records from a DLT-256
 (LINKTYPE_BLUETOOTH_LE_LL_WITH_PHDR) pcap. Emits one NDJSON object per advert.
 
+Accepts either a classic .pcap OR a .pcapng (Wireshark/Sniffle-extcap format): a
+pcapng is transparently converted to a temp classic pcap via `editcap` first, so
+the DLT256 parser below never has to know the difference.
+
 Fields (superset used by both tools; keys are stable):
   ts      float seconds (capture timestamp)
   company int manufacturer company id (0 if none)      -- learn + scan
@@ -16,7 +20,43 @@ Record layout (per packet): 10-byte pseudo-header, 4-byte Access Address, then
 the advertising PDU: header byte0 (low nibble=type, bit6=TxAdd), byte1=len,
 payload=AdvA(6)+AD. Advertising AA = 0x8E89BED6.
 """
-import sys, struct, json
+import sys, struct, json, os, shutil, subprocess, tempfile, atexit
+
+PCAPNG_MAGIC = b"\x0a\x0d\x0d\x0a"
+
+
+def _find_editcap():
+    p = shutil.which("editcap")
+    if p:
+        return p
+    for c in (r"C:\Program Files\Wireshark\editcap.exe",
+              r"C:\Program Files (x86)\Wireshark\editcap.exe",
+              "/usr/bin/editcap"):
+        if os.path.exists(c):
+            return c
+    return None
+
+
+def to_classic_pcap(path):
+    """If `path` is a pcapng, convert to a temp classic pcap via editcap and return that path
+    (auto-removed at exit). Otherwise return `path` unchanged so classic pcaps stay zero-cost."""
+    with open(path, "rb") as fh:
+        magic = fh.read(4)
+    if magic != PCAPNG_MAGIC:
+        return path
+    editcap = _find_editcap()
+    if not editcap:
+        sys.stderr.write("error: input is pcapng but editcap (Wireshark) was not found to convert it\n")
+        sys.exit(2)
+    tmp = tempfile.NamedTemporaryFile(suffix=".pcap", delete=False)
+    tmp.close()
+    atexit.register(lambda: os.path.exists(tmp.name) and os.remove(tmp.name))
+    r = subprocess.run([editcap, "-F", "pcap", path, tmp.name], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.stderr.write(f"error: editcap pcapng->pcap conversion failed: {r.stderr.strip()}\n")
+        sys.exit(2)
+    return tmp.name
+
 
 ADV_AA = 0x8E89BED6
 AA_LE = bytes.fromhex("d6be898e")   # advertising access address, little-endian on the wire
@@ -56,7 +96,7 @@ def main():
     if len(sys.argv) < 2:
         sys.stderr.write("usage: parse_pcap.py <file.pcap>\n")
         sys.exit(1)
-    f = open(sys.argv[1], "rb")
+    f = open(to_classic_pcap(sys.argv[1]), "rb")
     gh = f.read(24)
     magic, vma, vmi, tz, sig, snap, dlt = struct.unpack("<IHHIIII", gh)
     # DLT-agnostic: locate the advertising AA by scanning each record (handles Nordic DLT157 and
