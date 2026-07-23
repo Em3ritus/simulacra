@@ -6,6 +6,7 @@
 #include "sig_class_name.h"
 #include "threat_escalation.h"
 #include <stdio.h>
+#include <string.h>
 // Legacy view colors now alias the necromancer theme so every sub-view (radar/followers/stats/
 // library/control) reskins from one place and stays cohesive with HOME. See radar_theme.h.
 #define COL_BG    COL_VOID
@@ -26,6 +27,16 @@ static uint16_t escalation_color(detect_escalation_t e){
                                     : COL_ARCANE;  // arcane — NEW this session
 }
 
+// Shared themed header for the text-data sub-views (STATS/DETAIL/LIBRARY/INFO). Matches HOME's top
+// bar (crypt fill + edge hairline) plus CONTROL's BACK affordance -- any tap on these views returns
+// HOME (cyd_main.c radar_ui_on_input), so "< BACK" is truthful. Title is right-aligned (8px/glyph).
+static void draw_header(radar_gfx_t *g, const char *title){
+    radar_gfx_fill_rect(g, 0, 0, 240, 26, COL_CRYPT);
+    radar_gfx_hline(g, 0, 239, 26, COL_EDGE);
+    radar_gfx_text(g, 8, 9, "< BACK", COL_ARCANE);
+    int tx = 232 - (int)strlen(title) * 8;                 // right-align, 8px pad from the edge
+    radar_gfx_text(g, tx, 9, title, COL_BONE);
+}
 static void draw_radar(radar_gfx_t *g, const radar_wire_status_t *st, uint16_t sweep){
     radar_gfx_circle(g,RCX,RCY,RR,COL_RING); radar_gfx_circle(g,RCX,RCY,RR*2/3,COL_RING);
     radar_gfx_circle(g,RCX,RCY,RR/3,COL_RING);
@@ -44,8 +55,8 @@ static void draw_radar(radar_gfx_t *g, const radar_wire_status_t *st, uint16_t s
     radar_gfx_text(g,10,296,l,COL_DIM);
 }
 static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
-    radar_gfx_text(g,8,6,"FOLLOWERS",COL_FG);
-    if(st->threat_count==0){ radar_gfx_text(g,8,30,"none confirmed",COL_DIM); return; }
+    draw_header(g,"FOLLOWERS");
+    if(st->threat_count==0){ radar_gfx_text(g,8,34,"none confirmed",COL_DIM); return; }
     for(uint8_t i=0;i<st->threat_count;i++){ char r[48];
         detect_escalation_t e = threat_escalation_level(st->threats[i].sessions_seen, st->threats[i].places_seen);
         char tag = escalation_name(e)[0];   // N / R / P
@@ -59,9 +70,9 @@ static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
                      (int)st->threats[i].best_rssi,tag,
                      (unsigned)st->threats[i].sessions_seen,(unsigned)st->threats[i].places_seen);
         }
-        radar_gfx_text(g,6,30+i*18,r,escalation_color(e)); } }
+        radar_gfx_text(g,6,34+i*18,r,escalation_color(e)); } }
 static void draw_stats(radar_gfx_t *g, const radar_wire_status_t *st){
-    char l[40]; int y=6; radar_gfx_text(g,8,y,"DECOY / POP",COL_FG); y+=24;
+    char l[40]; draw_header(g,"DECOYS"); int y=34;
     #define ROW(...) do{ snprintf(l,sizeof l,__VA_ARGS__); radar_gfx_text(g,6,y,l,COL_DIM); y+=18; }while(0)
     ROW("decoys %u/%u tgt %u",(unsigned)st->active_devices,(unsigned)st->roster_size,(unsigned)st->active_target);
     // Shade-form breakdown (Milestone-A showcase): BLE privacy-address split rpa/nrpa/static.
@@ -77,7 +88,7 @@ static void fmt_age(char *out, size_t n, const char *label, uint32_t age_s){
     else                     snprintf(out, n, "%s %lus ago", label, (unsigned long)age_s);
 }
 static void draw_library(radar_gfx_t *g, const radar_lib_info_t *lib){
-    char l[40]; int y=6; radar_gfx_text(g,8,y,"LIBRARY",COL_FG); y+=24;
+    char l[40]; draw_header(g,"LIBRARY"); int y=34;
     #define ROW(...) do{ snprintf(l,sizeof l,__VA_ARGS__); radar_gfx_text(g,6,y,l,COL_DIM); y+=18; }while(0)
     if (!lib) { radar_gfx_text(g,6,y,"not a librarian",COL_DIM); return; }
     if (lib->sd_ok) ROW("sd OK %luMB",(unsigned long)lib->card_mb);
@@ -145,8 +156,7 @@ static void draw_home(radar_gfx_t *g, const radar_node_view_t *nodes, int nc){
     radar_gfx_text(g, 6, 304, "TAP AN ICON TO OPEN", COL_ASH);
 }
 static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st){
-    radar_gfx_clear(g, COL_VOID);
-    radar_gfx_text(g, 8, 10, "INFO", COL_BONE);
+    draw_header(g, "INFO");
     char l[40];
     snprintf(l,sizeof l,"epoch %u",(unsigned)st->epoch);        radar_gfx_text(g, 8, 40, l, COL_ASH);
     snprintf(l,sizeof l,"up %lus",(unsigned long)st->uptime_s); radar_gfx_text(g, 8, 58, l, COL_ASH);

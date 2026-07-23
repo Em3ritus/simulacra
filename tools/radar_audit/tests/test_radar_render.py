@@ -36,6 +36,16 @@ class StatsFormBreakdown(unittest.TestCase):
         joined = " ".join(texts).lower()
         self.assertIn("decoy", joined, "STATS lost its title/decoy row")
 
+    def test_data_views_share_back_and_title_header(self):
+        # STATS/DETAIL/LIBRARY/INFO get the shared themed header: a "< BACK" affordance + page title,
+        # matching HOME/CONTROL. (threat_count=0 so DETAIL renders its header path.)
+        for view, title in [(2, "FOLLOWERS"), (3, "DECOYS"), (4, "LIBRARY"), (6, "INFO")]:
+            texts = render(view, 1, 1, 1, 4, 8, 4, 0)
+            joined = " | ".join(texts)
+            self.assertIn("< BACK", texts, f"view {view} missing BACK affordance; drew: {joined}")
+            self.assertTrue(any(title in t for t in texts),
+                            f"view {view} missing title {title!r}; drew: {joined}")
+
     def test_all_views_render_without_crash(self):
         # smoke: every view renders (harness exits 0) for a representative populated status.
         for v in range(0, 7):
