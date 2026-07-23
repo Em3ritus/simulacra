@@ -20,6 +20,25 @@
 #define RCY 120
 #define RR 100
 
+#define POSTURE_MIN_CROWD 2       // at/below this many ambient devices there's no crowd to hide in
+
+radar_posture_t radar_posture(const radar_wire_status_t *st){
+    for(uint8_t i=0;i<st->threat_count;i++)                       // a CONFIRMED follower is the top fact
+        if(threat_escalation_level(st->threats[i].sessions_seen, st->threats[i].places_seen) != ESCALATION_NEW)
+            return RADAR_POSTURE_HUNTED;
+    if((st->flags & 0x1) || st->active_devices == 0) return RADAR_POSTURE_DARK;   // paused / not emitting
+    if(st->pop_ewma <= POSTURE_MIN_CROWD) return RADAR_POSTURE_EXPOSED;           // empty RF space
+    return RADAR_POSTURE_CLOAKED;
+}
+static const char *posture_label(radar_posture_t p){
+    return p==RADAR_POSTURE_HUNTED?"HUNTED":p==RADAR_POSTURE_EXPOSED?"EXPOSED":
+           p==RADAR_POSTURE_DARK?"DARK":"CLOAKED";
+}
+static uint16_t posture_color(radar_posture_t p){
+    return p==RADAR_POSTURE_HUNTED?COL_HUNTER:p==RADAR_POSTURE_EXPOSED?COL_WARD:
+           p==RADAR_POSTURE_DARK?COL_ASH:COL_CHANNEL;
+}
+
 static uint16_t threat_color(uint8_t ep){ return ep>=5?COL_HUNTER:(ep>=2?COL_WARD:COL_ARCANE); }
 static uint16_t escalation_color(detect_escalation_t e){
     return e==ESCALATION_PERSISTENT ? COL_HUNTER   // red   — a confirmed follower
@@ -115,12 +134,16 @@ static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     radar_gfx_text(g, 30, 296, "broadcast to all decoys", COL_DIM);
 }
 // ---- necromancer HOME: fleet strip + sigil grid + ticker (theme palette) ----
-static void draw_home(radar_gfx_t *g, const radar_node_view_t *nodes, int nc){
+static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar_node_view_t *nodes, int nc){
     radar_gfx_clear(g, COL_VOID);
     radar_gfx_fill_rect(g, 0, 0, 240, 26, COL_CRYPT);
     radar_gfx_hline(g, 0, 239, 26, COL_EDGE);
     radar_sigil_draw(g, SIGIL_CIRCLE, 12, 13, 7, COL_ARCANE);
     radar_gfx_text(g, 26, 9, "SIMULACRA", COL_BONE);
+    // Protection posture: honest one-word verdict, right-aligned in the top bar (8px/glyph).
+    radar_posture_t p = radar_posture(st);
+    const char *pl = posture_label(p);
+    radar_gfx_text(g, 232 - (int)strlen(pl) * 8, 9, pl, posture_color(p));
     int cols = nc < 1 ? 0 : (nc > 3 ? 3 : nc);
     for(int i=0;i<cols;i++){
         int x=i*80, y=30;
@@ -168,7 +191,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        uint16_t sweep, uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx){
     for(int y0=0;y0<h;y0+=band_h){ radar_gfx_t g={ .buf=band, .w=w, .y0=y0, .h=band_h };
         radar_gfx_clear(&g,COL_BG);
-        if(view==RADAR_VIEW_HOME) draw_home(&g,nodes,node_count);
+        if(view==RADAR_VIEW_HOME) draw_home(&g,st,nodes,node_count);
         else if(view==RADAR_VIEW_DETAIL) draw_detail(&g,st);
         else if(view==RADAR_VIEW_STATS) draw_stats(&g,st);
         else if(view==RADAR_VIEW_LIBRARY) draw_library(&g,lib);

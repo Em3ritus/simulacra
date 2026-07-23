@@ -12,6 +12,14 @@ typedef struct {                 // Vigil librarian snapshot for the LIBRARY pag
     uint32_t save_bytes;         // size of last sealed blob
 } radar_lib_info_t;
 typedef struct { uint8_t sel_preset; bool send_flash; } radar_ctrl_info_t;   // CONTROL page state
+// Honest at-a-glance protection posture (HOME headline). Priority HUNTED > DARK > EXPOSED > CLOAKED.
+typedef enum {
+    RADAR_POSTURE_CLOAKED = 0,  // decoys active + a real ambient crowd to blend into
+    RADAR_POSTURE_EXPOSED,      // decoys running but ~no ambient crowd -> nothing hides you (empty RF space)
+    RADAR_POSTURE_DARK,         // decoys paused / not emitting
+    RADAR_POSTURE_HUNTED,       // a CONFIRMED (recurring/persistent) follower is present
+} radar_posture_t;
+radar_posture_t radar_posture(const radar_wire_status_t *st);   // pure; reads status, no I/O
 // Per-node fleet view for the HOME strip: id + a pointer to that node's last status + liveness.
 typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; } radar_node_view_t;
 // Banded full-frame render of `view` from `st` (sweep_deg animates the radar). `band` is a

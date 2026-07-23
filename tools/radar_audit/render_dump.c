@@ -38,6 +38,14 @@ int main(int argc, char **argv)
     if (argc > 6) st.roster_size    = (uint8_t)atoi(argv[6]);
     if (argc > 7) st.active_target  = (uint8_t)atoi(argv[7]);
     if (argc > 8) st.threat_count   = (uint8_t)atoi(argv[8]);
+    if (argc > 9) st.pop_ewma       = (uint16_t)atoi(argv[9]);
+    // arg 10: threat escalation for ALL threats -- 0 NEW(1/1), 1 RECURRING(places 3), 2 PERSISTENT(sessions 3)
+    int esc = argc > 10 ? atoi(argv[10]) : 0;
+    for (int i = 0; i < st.threat_count && i < RADAR_MAX_THREATS; i++) {
+        st.threats[i].sessions_seen = (esc >= 2) ? 3 : 1;
+        st.threats[i].places_seen   = (esc >= 1) ? 3 : 1;
+    }
+    if (argc > 11) st.flags         = (uint8_t)atoi(argv[11]);
 
     radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
     radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);

@@ -5,6 +5,16 @@ EXE = os.path.join(TOOL, "render_dump.exe" if os.name == "nt" else "render_dump"
 
 # radar_view_t: HOME=0 RADAR=1 DETAIL=2 STATS=3 LIBRARY=4 CONTROL=5 INFO=6
 STATS = 3
+HOME = 0
+
+
+def home(restless=1, wandering=1, bound=1, active=8, roster=16, target=8,
+         threats=0, pop=10, esc=0, flags=0):
+    """Render HOME and return its text lines. esc: 0 NEW, 1 RECURRING, 2 PERSISTENT."""
+    out = subprocess.check_output(
+        [EXE, str(HOME), str(restless), str(wandering), str(bound), str(active),
+         str(roster), str(target), str(threats), str(pop), str(esc), str(flags)], text=True)
+    return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
 
 
 def render(view, *args):
@@ -51,6 +61,42 @@ class StatsFormBreakdown(unittest.TestCase):
         for v in range(0, 7):
             subprocess.check_call([EXE, str(v), "5", "3", "8", "12", "16", "10", "2"],
                                   stdout=subprocess.DEVNULL)
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class ProtectionPosture(unittest.TestCase):
+    def test_cloaked_when_active_with_crowd(self):
+        self.assertIn("CLOAKED", home(active=8, pop=12, threats=0))
+
+    def test_exposed_when_no_crowd(self):
+        # decoys running but essentially no ambient devices -> honest "nothing hides you"
+        self.assertIn("EXPOSED", home(active=8, pop=0, threats=0))
+
+    def test_dark_when_paused(self):
+        self.assertIn("DARK", home(active=8, pop=12, threats=0, flags=1))
+
+    def test_dark_when_not_emitting(self):
+        self.assertIn("DARK", home(active=0, pop=12, threats=0))
+
+    def test_hunted_on_confirmed_follower(self):
+        self.assertIn("HUNTED", home(active=8, pop=12, threats=1, esc=1))   # RECURRING
+        self.assertIn("HUNTED", home(active=8, pop=12, threats=1, esc=2))   # PERSISTENT
+
+    def test_new_threat_does_not_cry_wolf(self):
+        # an unconfirmed (NEW) threat must NOT read HUNTED -- it stays in FOLLOWERS only.
+        lines = home(active=8, pop=12, threats=1, esc=0)
+        self.assertNotIn("HUNTED", lines)
+        self.assertIn("CLOAKED", lines)
+
+    def test_hunted_beats_paused(self):
+        # priority: a confirmed follower wins even if the fleet is paused.
+        self.assertIn("HUNTED", home(active=8, pop=12, threats=1, esc=2, flags=1))
+
+    def test_exactly_one_posture_word(self):
+        words = {"CLOAKED", "EXPOSED", "DARK", "HUNTED"}
+        for kw in (dict(pop=12), dict(pop=0), dict(flags=1), dict(threats=1, esc=2)):
+            lines = home(active=8, **kw)
+            self.assertEqual(sum(1 for t in lines if t in words), 1, f"not exactly one posture: {lines}")
 
 
 if __name__ == "__main__":
