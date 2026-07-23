@@ -27,24 +27,35 @@ def render(view, *args):
     return texts
 
 
+def stats(restless=0, wandering=0, bound=0, active=8, roster=16, target=8, uptime=0):
+    out = subprocess.check_output(
+        [EXE, str(STATS), str(restless), str(wandering), str(bound), str(active),
+         str(roster), str(target), "0", "0", "0", "0", str(uptime)], text=True)
+    return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
+
+
 @unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
 class StatsFormBreakdown(unittest.TestCase):
     def test_stats_shows_form_breakdown_values(self):
-        # restless=5 wandering=3 bound=8 -> the DECOYS/STATS page must surface the RPA/NRPA/static split.
-        texts = render(STATS, 5, 3, 8)
-        joined = " | ".join(texts)
-        self.assertTrue(any("rpa" in t.lower() for t in texts),
-                        f"no form-breakdown row found; drew: {joined}")
-        row = next(t for t in texts if "rpa" in t.lower())
-        self.assertIn("5", row, f"restless count missing: {row!r}")
-        self.assertIn("3", row, f"wandering count missing: {row!r}")
-        self.assertIn("8", row, f"bound count missing: {row!r}")
+        # restless=5 wandering=3 bound=7 -> the DECOYS page surfaces the RPA/NRPA/static split as an
+        # aligned label + value row.
+        texts = stats(5, 3, 7)
+        self.assertTrue(any("rpa/nrpa/static" in t for t in texts), f"no form label; drew: {texts}")
+        self.assertIn("5 / 3 / 7", texts, f"form values row missing; drew: {texts}")
+
+    def test_stats_grouped_into_sections(self):
+        texts = stats()
+        for section in ("DECOY CROWD", "ENVIRONMENT", "SYSTEM"):
+            self.assertIn(section, texts, f"missing section {section!r}; drew: {texts}")
+
+    def test_stats_uptime_humanized(self):
+        # 47143s -> "13h 5m", not raw seconds
+        self.assertIn("13h 5m", stats(uptime=47143), "uptime not humanized")
 
     def test_stats_still_shows_existing_rows(self):
-        # regression: adding the form row must not drop the decoy/pop rows.
-        texts = render(STATS, 5, 3, 8, 12, 16, 10)
-        joined = " ".join(texts).lower()
-        self.assertIn("decoy", joined, "STATS lost its title/decoy row")
+        # regression: the page still identifies as the DECOYS view.
+        joined = " ".join(stats(5, 3, 8, active=12, roster=16, target=10)).lower()
+        self.assertIn("decoy", joined, "STATS lost its DECOYS identity")
 
     def test_data_views_share_back_and_title_header(self):
         # STATS/DETAIL/LIBRARY/INFO get the shared themed header: a "< BACK" affordance + page title,
@@ -61,6 +72,27 @@ class StatsFormBreakdown(unittest.TestCase):
         for v in range(0, 7):
             subprocess.check_call([EXE, str(v), "5", "3", "8", "12", "16", "10", "2"],
                                   stdout=subprocess.DEVNULL)
+
+
+def view_texts(view, uptime=0):
+    out = subprocess.check_output(
+        [EXE, str(view), "0", "0", "0", "8", "16", "8", "0", "0", "0", "0", str(uptime)], text=True)
+    return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class DataPageLayout(unittest.TestCase):
+    def test_library_grouped_into_sections(self):
+        t = view_texts(4)   # LIBRARY
+        for s in ("LIBRARY", "STORAGE", "SYNC"):
+            self.assertIn(s, t, f"LIBRARY missing {s!r}; drew: {t}")
+        self.assertTrue(any("card" in x for x in t), f"no card row; drew: {t}")
+
+    def test_info_grouped_and_uptime_humanized(self):
+        t = view_texts(6, uptime=47143)   # INFO
+        self.assertIn("SYSTEM", t, f"INFO missing SYSTEM; drew: {t}")
+        self.assertTrue(any("firmware" in x for x in t), f"no firmware row; drew: {t}")
+        self.assertIn("13h 5m", t, f"INFO uptime not humanized; drew: {t}")
 
 
 @unittest.skipUnless(os.path.exists(EXE), "render_dump not built")

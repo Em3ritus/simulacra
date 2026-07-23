@@ -90,34 +90,59 @@ static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
                      (unsigned)st->threats[i].sessions_seen,(unsigned)st->threats[i].places_seen);
         }
         radar_gfx_text(g,6,34+i*18,r,escalation_color(e)); } }
-static void draw_stats(radar_gfx_t *g, const radar_wire_status_t *st){
-    char l[40]; draw_header(g,"DECOYS"); int y=34;
-    #define ROW(...) do{ snprintf(l,sizeof l,__VA_ARGS__); radar_gfx_text(g,6,y,l,COL_DIM); y+=18; }while(0)
-    ROW("decoys %u/%u tgt %u",(unsigned)st->active_devices,(unsigned)st->roster_size,(unsigned)st->active_target);
-    // Shade-form breakdown (Milestone-A showcase): BLE privacy-address split rpa/nrpa/static.
-    ROW("rpa %u nrpa %u static %u",(unsigned)st->form_restless,(unsigned)st->form_wandering,(unsigned)st->form_bound);
-    ROW("pop %u obs %lu",(unsigned)st->pop_ewma,(unsigned long)st->total_obs);
-    ROW("epoch %u probes %lu",(unsigned)st->epoch,(unsigned long)st->probes_sent);
-    ROW("churn %s",(st->flags&0x1)?"PAUSED":"run");
-    ROW("up %lus",(unsigned long)st->uptime_s);
-    #undef ROW
+// --- shared data-page primitives: section headers + aligned label/value rows ------------------
+static void fmt_uptime(char *out, size_t n, uint32_t s){    // 47143s -> "13h 5m"; keeps the panel legible
+    if (s < 3600)       snprintf(out, n, "%um", (unsigned)(s / 60));
+    else if (s < 86400) snprintf(out, n, "%uh %um", (unsigned)(s / 3600), (unsigned)((s % 3600) / 60));
+    else                snprintf(out, n, "%ud %uh", (unsigned)(s / 86400), (unsigned)((s % 86400) / 3600));
 }
-static void fmt_age(char *out, size_t n, const char *label, uint32_t age_s){
-    if (age_s == UINT32_MAX) snprintf(out, n, "%s never", label);
-    else                     snprintf(out, n, "%s %lus ago", label, (unsigned long)age_s);
+static void row_kv(radar_gfx_t *g, int y, const char *label, const char *val){
+    radar_gfx_text(g, 16, y, label, COL_ASH);                        // dim label, indented
+    radar_gfx_text(g, 224 - (int)strlen(val) * 8, y, val, COL_BONE); // bright value, right-aligned column
+}
+static void row_section(radar_gfx_t *g, int y, const char *title){
+    radar_gfx_text(g, 8, y, title, COL_ARCANE);                      // accent section header
+}
+
+static void draw_stats(radar_gfx_t *g, const radar_wire_status_t *st){
+    draw_header(g,"DECOYS");
+    char v[24]; int y = 36;
+    row_section(g, y, "DECOY CROWD"); y += 18;
+    // Fleet-wide TOTAL active decoys (summed across nodes). Roster capacity is a per-node constant, so
+    // summing it is meaningless -- show the projected count vs the target instead.
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_devices); row_kv(g,y,"projecting",v); y+=16;
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_target); row_kv(g,y,"target",v); y+=16;
+    // Shade-form breakdown (Milestone-A showcase): BLE privacy-address split rpa/nrpa/static.
+    snprintf(v,sizeof v,"%u / %u / %u",(unsigned)st->form_restless,(unsigned)st->form_wandering,(unsigned)st->form_bound);
+    row_kv(g,y,"rpa/nrpa/static",v); y+=22;
+    row_section(g, y, "ENVIRONMENT"); y += 18;
+    snprintf(v,sizeof v,"%u",(unsigned)st->pop_ewma); row_kv(g,y,"real crowd",v); y+=16;
+    snprintf(v,sizeof v,"%lu",(unsigned long)st->total_obs); row_kv(g,y,"observed",v); y+=22;
+    row_section(g, y, "SYSTEM"); y += 18;
+    snprintf(v,sizeof v,"%u",(unsigned)st->epoch); row_kv(g,y,"epoch",v); y+=16;
+    snprintf(v,sizeof v,"%lu",(unsigned long)st->probes_sent); row_kv(g,y,"probes",v); y+=16;
+    row_kv(g,y,"churn",(st->flags&0x1)?"PAUSED":"running"); y+=16;
+    fmt_uptime(v,sizeof v,st->uptime_s); row_kv(g,y,"uptime",v);
+}
+static void fmt_age_v(char *out, size_t n, uint32_t age_s){   // value-only age for a row_kv cell
+    if (age_s == UINT32_MAX) snprintf(out, n, "never");
+    else                     snprintf(out, n, "%lus ago", (unsigned long)age_s);
 }
 static void draw_library(radar_gfx_t *g, const radar_lib_info_t *lib){
-    char l[40]; draw_header(g,"LIBRARY"); int y=34;
-    #define ROW(...) do{ snprintf(l,sizeof l,__VA_ARGS__); radar_gfx_text(g,6,y,l,COL_DIM); y+=18; }while(0)
-    if (!lib) { radar_gfx_text(g,6,y,"not a librarian",COL_DIM); return; }
-    if (lib->sd_ok) ROW("sd OK %luMB",(unsigned long)lib->card_mb);
-    else            radar_gfx_text(g,6,y,"sd ABSENT (RAM only)",COL_WARN), y+=18;
-    ROW("lib %u/%u shapes",(unsigned)lib->lib_count,(unsigned)lib->lib_cap);
-    fmt_age(l,sizeof l,"offer rx",lib->offer_age_s); radar_gfx_text(g,6,y,l,COL_DIM); y+=18;
-    fmt_age(l,sizeof l,"sync tx ",lib->sync_age_s);  radar_gfx_text(g,6,y,l,COL_DIM); y+=18;
-    if (lib->save_age_s == UINT32_MAX) ROW("save never");
-    else ROW("save %lus ago (%luB)",(unsigned long)lib->save_age_s,(unsigned long)lib->save_bytes);
-    #undef ROW
+    draw_header(g,"LIBRARY");
+    if (!lib) { radar_gfx_text(g,16,40,"not a librarian",COL_ASH); return; }
+    char v[24]; int y = 36;
+    row_section(g, y, "STORAGE"); y += 18;
+    if (lib->sd_ok) { snprintf(v,sizeof v,"OK %luMB",(unsigned long)lib->card_mb); row_kv(g,y,"card",v); }
+    else            row_kv(g,y,"card","ABSENT");
+    y += 16;
+    snprintf(v,sizeof v,"%u / %u",(unsigned)lib->lib_count,(unsigned)lib->lib_cap); row_kv(g,y,"shapes",v); y+=22;
+    row_section(g, y, "SYNC"); y += 18;
+    fmt_age_v(v,sizeof v,lib->offer_age_s); row_kv(g,y,"offer rx",v); y+=16;
+    fmt_age_v(v,sizeof v,lib->sync_age_s);  row_kv(g,y,"sync tx",v);  y+=16;
+    if (lib->save_age_s == UINT32_MAX) row_kv(g,y,"last save","never");
+    else { snprintf(v,sizeof v,"%lus (%luB)",(unsigned long)lib->save_age_s,(unsigned long)lib->save_bytes);
+           row_kv(g,y,"last save",v); }
 }
 static const char *CTRL_LABELS[5] = { "PAUSE", "STEALTH", "NORMAL", "DENSE", "MAX" };
 static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
@@ -183,10 +208,11 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
 }
 static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st){
     draw_header(g, "INFO");
-    char l[40];
-    snprintf(l,sizeof l,"epoch %u",(unsigned)st->epoch);        radar_gfx_text(g, 8, 40, l, COL_ASH);
-    snprintf(l,sizeof l,"up %lus",(unsigned long)st->uptime_s); radar_gfx_text(g, 8, 58, l, COL_ASH);
-    radar_gfx_text(g, 8, 92, "simulacra cyd v1", COL_ARCANE);
+    char v[24]; int y = 36;
+    row_section(g, y, "SYSTEM"); y += 18;
+    snprintf(v,sizeof v,"%u",(unsigned)st->epoch); row_kv(g,y,"epoch",v); y+=16;
+    fmt_uptime(v,sizeof v,st->uptime_s);           row_kv(g,y,"uptime",v); y+=16;
+    row_kv(g,y,"firmware","cyd v1");
 }
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count,

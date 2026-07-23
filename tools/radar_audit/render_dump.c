@@ -46,6 +46,7 @@ int main(int argc, char **argv)
         st.threats[i].places_seen   = (esc >= 1) ? 3 : 1;
     }
     if (argc > 11) st.flags         = (uint8_t)atoi(argv[11]);
+    if (argc > 12) st.uptime_s      = (uint32_t)strtoul(argv[12], 0, 10);
 
     radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
     radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
