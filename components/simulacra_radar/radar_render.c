@@ -140,10 +140,13 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
     radar_gfx_hline(g, 0, 239, 26, COL_EDGE);
     radar_sigil_draw(g, SIGIL_CIRCLE, 12, 13, 7, COL_ARCANE);
     radar_gfx_text(g, 26, 9, "SIMULACRA", COL_BONE);
-    // Protection posture: honest one-word verdict, right-aligned in the top bar (8px/glyph).
+    // Protection posture: a dim "STATUS" label + the honest one-word verdict (coloured), right-aligned
+    // in the top bar (8px/glyph) so a new user reads it as "the system's current status".
     radar_posture_t p = radar_posture(st);
     const char *pl = posture_label(p);
-    radar_gfx_text(g, 232 - (int)strlen(pl) * 8, 9, pl, posture_color(p));
+    int px = 232 - (int)strlen(pl) * 8;
+    radar_gfx_text(g, px, 9, pl, posture_color(p));
+    radar_gfx_text(g, px - 8 - 6 * 8, 9, "STATUS", COL_ASH);   // "STATUS" = 6 glyphs, 8px gap before the word
     int cols = nc < 1 ? 0 : (nc > 3 ? 3 : nc);
     for(int i=0;i<cols;i++){
         int x=i*80, y=30;

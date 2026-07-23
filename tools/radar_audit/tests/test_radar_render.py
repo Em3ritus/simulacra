@@ -68,6 +68,10 @@ class ProtectionPosture(unittest.TestCase):
     def test_cloaked_when_active_with_crowd(self):
         self.assertIn("CLOAKED", home(active=8, pop=12, threats=0))
 
+    def test_status_label_present(self):
+        # the posture word is labeled "STATUS" so it reads as the system's current status
+        self.assertIn("STATUS", home(active=8, pop=12, threats=0))
+
     def test_exposed_when_no_crowd(self):
         # decoys running but essentially no ambient devices -> honest "nothing hides you"
         self.assertIn("EXPOSED", home(active=8, pop=0, threats=0))
