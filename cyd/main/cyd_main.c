@@ -804,7 +804,12 @@ void app_main(void)
         } else if (ui.view != RADAR_VIEW_EXPOSURE && prev_view == RADAR_VIEW_EXPOSURE) {
             expo_sniff_stop(); expo_reset(&s_expo); espnow_suspended = false;
         }
-        if (ui.view == RADAR_VIEW_EXPOSURE) { expo_sniff_tick(now); expo_tick(&s_expo, now); }
+        if (ui.view == RADAR_VIEW_EXPOSURE) {
+            expo_sniff_tick(now); expo_tick(&s_expo, now);
+            // A running session gets no touchscreen input (you're toggling your phone), so keep the UI
+            // "active" during baseline/watch -- else the idle-return + wake-on-follower yank the view away.
+            if (s_expo.state == EXPO_BASELINE || s_expo.state == EXPO_WATCH) radar_ui_note_input(&ui, now);
+        }
         prev_view = ui.view;
         // keep asking every ~1s while the screen is awake so data stays fresh (not while sniffing)
         if (ui.backlight_on && !espnow_suspended && now-last_req > 1000) { send_request(); last_req=now; }
