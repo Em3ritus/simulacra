@@ -1,0 +1,111 @@
+# Build the three BAKED Simulacra firmwares in CI, merge each to a single flashable image, and deploy
+# the web-flasher (web/ + the freshly-built firmware/) to GitHub Pages -- so binaries never live in git.
+#
+# SETUP (one-time, when you publish): repo Settings -> Pages -> Source = "GitHub Actions". Repo public.
+#
+# HONEST CAVEATS (this is a sketch; expect first-run tuning):
+#   * ESP32-C5 is new -- the espressif/idf:v5.5 image must have c5 support (it should in 5.5; verify).
+#   * esp-idf-ci-action builds inside the espressif/idf docker; managed_components are fetched at build
+#     (CI has network). If a component pin fails, tweak main/idf_component.yml.
+#   * Each of the 3 builds takes a few minutes. matrix fail-fast is off so one break doesn't hide others.
+name: web-flasher
+
+on:
+  workflow_dispatch:            # manual "Run workflow" button
+  push:
+    branches: [main]
+    paths:                      # rebuild only when firmware or the page changes
+      - 'main/**'
+      - 'cyd/**'
+      - 'components/**'
+      - 'web/index.html'
+      - 'web/manifest.json'
+      - '.github/workflows/flasher.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:                    # never race two Pages deploys
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: decoy-c5   # -> firmware/decoy-c5.bin (Ward)
+            idf: v5.5
+            target: esp32c5
+            path: .
+          - name: decoy-c6   # -> firmware/decoy-c6.bin (Shade)
+            idf: v5.4
+            target: esp32c6
+            path: .
+          - name: cyd        # -> firmware/cyd.bin (Vigil controller; separate project in cyd/)
+            idf: v5.4
+            target: esp32
+            path: cyd
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build BAKED (-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1, NO FLEET_PROVISION), then merge the
+      # bootloader+partition+app into one offset-0 image via esptool (offsets come from flash_args).
+      - name: Build baked + merge
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ matrix.idf }}
+          target: ${{ matrix.target }}
+          path: ${{ matrix.path }}
+          command: >-
+            idf.py -B build_ci -DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1 build &&
+            cd build_ci &&
+            esptool.py --chip ${{ matrix.target }} merge_bin -o ../${{ matrix.name }}.bin @flash_args
+
+      - name: Collect merged image
+        run: |
+          mkdir -p out
+          mv ${{ matrix.path }}/${{ matrix.name }}.bin out/${{ matrix.name }}.bin
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.name }}
+          path: out/${{ matrix.name }}.bin
+          if-no-files-found: error
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site (page + manifest + firmware)
+        run: |
+          mkdir -p _site/firmware
+          cp web/index.html web/manifest.json _site/
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+
+      - name: Place the three merged bins (manifest uses relative firmware/ paths)
+        run: |
+          cp dl/fw-decoy-c5/decoy-c5.bin _site/firmware/decoy-c5.bin
+          cp dl/fw-decoy-c6/decoy-c6.bin _site/firmware/decoy-c6.bin
+          cp dl/fw-cyd/cyd.bin           _site/firmware/cyd.bin
+          ls -l _site/firmware
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulacra — Flash</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+<style>
+  :root {
+    --void:#0c0b10; --crypt:#16131d; --edge:#2b2536; --bone:#e9e3d6; --ash:#8f889b;
+    --arcane:#b48ead; --channel:#8fbf9f; --hunter:#f0555f; --ward:#e6a64f;
+    --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; }
+  body {
+    font:16px/1.6 var(--sans); color:var(--bone); background:var(--void);
+    background-image:radial-gradient(60rem 40rem at 50% -10%, #1a1330 0%, rgba(12,11,16,0) 60%);
+    min-height:100vh; padding:2.5rem 1rem 4rem;
+  }
+  main { max-width:44rem; margin:0 auto; }
+  a { color:var(--arcane); }
+
+  header { display:flex; align-items:center; gap:.75rem; }
+  .sigil { width:34px; height:34px; flex:none; }
+  .wordmark { font:600 1.5rem/1 var(--mono); letter-spacing:.35em; color:var(--bone); margin:0; }
+  .rule { height:1px; background:linear-gradient(90deg, var(--arcane), transparent); margin:1rem 0 1.5rem; }
+
+  .tagline { font:1.1rem/1.5 var(--mono); color:var(--arcane); margin:.25rem 0 1.25rem; }
+  .lede { color:var(--bone); }
+  .lede b.shade { color:var(--channel); } .lede b.hunt { color:var(--hunter); }
+
+  .card {
+    background:var(--crypt); border:1px solid var(--edge); border-radius:10px;
+    padding:1.25rem 1.4rem; margin:1.75rem 0;
+  }
+  .card h2 { font:600 .8rem/1 var(--mono); letter-spacing:.2em; color:var(--ash);
+             text-transform:uppercase; margin:0 0 .75rem; }
+  .need { color:var(--ash); font-size:.95rem; margin:0 0 1rem; }
+  .need code { color:var(--bone); font-family:var(--mono); }
+
+  esp-web-install-button { display:inline-block; }
+  button[slot=activate] {
+    font:600 1rem/1 var(--mono); letter-spacing:.05em; padding:.75rem 1.4rem; border-radius:7px;
+    border:1px solid var(--arcane); background:#241d2e; color:var(--bone); cursor:pointer;
+  }
+  button[slot=activate]:hover { background:#2f2640; }
+
+  .grimoire { border-left:2px solid var(--edge); padding:.5rem 0 .5rem 1rem; margin:2rem 0;
+              color:var(--ash); font-size:.9rem; }
+  .grimoire b { color:var(--bone); }
+  .k-chrome{color:var(--channel);} .k-warn{color:var(--ward);}
+
+  footer { color:var(--ash); font-size:.85rem; margin-top:2.5rem; border-top:1px solid var(--edge);
+           padding-top:1rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg class="sigil" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" fill="none" stroke="#b48ead" stroke-width="1.5"/>
+      <circle cx="20" cy="20" r="9"  fill="none" stroke="#b48ead" stroke-width="1"/>
+      <path d="M20 1v38M1 20h38" stroke="#b48ead" stroke-width="1" opacity=".6"/>
+      <circle cx="20" cy="20" r="2.5" fill="#b48ead"/>
+    </svg>
+    <h1 class="wordmark">SIMULACRA</h1>
+  </header>
+  <div class="rule"></div>
+
+  <p class="tagline">Hide among shades. Watch for hunters.</p>
+  <p class="lede">Simulacra is a small multi-node fleet that buries your real devices in a crowd of
+     <b class="shade">phantom shades</b> — synthetic BLE and Wi-Fi devices that look like an ordinary
+     crowd — and flags <b class="hunt">hunters</b>: trackers and followers that shadow you across time
+     and place. It runs on cheap ESP32 boards and shows what it sees on a small display.</p>
+
+  <div class="card">
+    <h2>Raise a fleet</h2>
+    <p class="need">You need at least one decoy board (<code>ESP32-C5</code> or <code>ESP32-C6</code>)
+       and one controller (<code>ESP32-2432S028</code>, the "CYD" display). Plug in each board and flash
+       it — the chip is detected and the right role is installed automatically.</p>
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate">Connect &amp; Flash</button>
+    </esp-web-install-button>
+  </div>
+
+  <div class="grimoire">
+    <b>Before you begin.</b> Works in desktop <span class="k-chrome">Chrome or Edge</span> only (Web
+    Serial). This installs the <b>baked starter</b> build — every fleet shares one public key, so it is
+    for <span class="k-warn">trying Simulacra out</span>, not a private deployment; build the provisioned
+    regime from source for real use. A plain (non-CYD) ESP32 board would receive controller firmware, so
+    use the boards above.
+  </div>
+
+  <footer>
+    Simulacra is counter-surveillance by obfuscation. Source, docs, and the provisioned build:
+    <a href="https://github.com/Em3ritus/simulacra">github.com/Em3ritus/simulacra</a>.
+  </footer>
+</main>
+</body>
+</html>

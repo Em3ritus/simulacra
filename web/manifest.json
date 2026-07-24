@@ -1,0 +1,10 @@
+{
+  "name": "Simulacra",
+  "version": "0.1.0-baked",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32-C5", "parts": [ { "path": "firmware/decoy-c5.bin", "offset": 0 } ] },
+    { "chipFamily": "ESP32-C6", "parts": [ { "path": "firmware/decoy-c6.bin", "offset": 0 } ] },
+    { "chipFamily": "ESP32",    "parts": [ { "path": "firmware/cyd.bin",       "offset": 0 } ] }
+  ]
+}
