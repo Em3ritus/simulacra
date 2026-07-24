@@ -14,6 +14,7 @@
 #include "radar_wire.h"
 #include "fleet_status.h"
 #include "radar_ui.h"
+#include "expo_sniff.h"
 #include "radar_key.h"
 #include "config_wire.h"
 #if defined(SIMULACRA_CONFIG_CTRL) || defined(SIMULACRA_FLEET_PROVISION)
@@ -715,6 +716,9 @@ void app_main(void)
 #endif
 
     radar_ui_t ui; radar_ui_reset(&ui, (uint32_t)(esp_timer_get_time()/1000), 0);
+    exposure_t s_expo; expo_reset(&s_expo);                    // EXPOSURE view session
+    bool espnow_suspended = false;                             // true while in modal exposure mode
+    radar_view_t prev_view = RADAR_VIEW_HOME;                  // for exposure enter/exit transitions
     static uint16_t band[LCD_W*40]; uint16_t sweep=0; uint32_t last_req=0;
     bool bl_was_on = true;
     ESP_LOGW(TAG, "panel up: live radar loop starting");
@@ -753,12 +757,13 @@ void app_main(void)
                 // HOME sigil grid -> jump to that view. Geometry mirrors draw_home: 2 cols split at
                 // x=120, 3 rows of 64px starting at y=104 (CIRCLE/HUNTERS / LIVING/RITES / WARDS/GRIMOIRE).
                 // The fleet strip (y 30..100) taps into the live radar. Topbar / gaps just keep awake.
-                static const radar_view_t GRID[6] = {
+                static const radar_view_t GRID[7] = {          // 4 rows @ 48px (see draw_home)
                     RADAR_VIEW_RADAR,   RADAR_VIEW_DETAIL,     // CIRCLE   HUNTERS
                     RADAR_VIEW_STATS,   RADAR_VIEW_CONTROL,    // LIVING   RITES
-                    RADAR_VIEW_LIBRARY, RADAR_VIEW_INFO };     // WARDS    GRIMOIRE
+                    RADAR_VIEW_LIBRARY, RADAR_VIEW_INFO,       // WARDS    GRIMOIRE
+                    RADAR_VIEW_EXPOSURE };                     // EXPOSURE (row 3, col 0)
                 radar_view_t v = RADAR_VIEW_COUNT;             // sentinel: no target
-                if (ty >= 104 && ty < 296)      v = GRID[((ty - 104) / 64) * 2 + (tx >= 120 ? 1 : 0)];
+                if (ty >= 104 && ty < 296) { int idx=((ty-104)/48)*2+(tx>=120?1:0); if (idx<7) v=GRID[idx]; }
                 else if (ty >= 30 && ty < 100)  v = RADAR_VIEW_RADAR;
                 if (v != RADAR_VIEW_COUNT) { radar_ui_select_view(&ui, v, now); send_request(); last_req = now; }
                 else                       radar_ui_note_input(&ui, now);
@@ -786,12 +791,23 @@ void app_main(void)
 #else
                 radar_ui_on_input(&ui, now); send_request(); last_req = now;
 #endif
+            } else if (ui.view == RADAR_VIEW_EXPOSURE) {
+                if (ty < 34) { radar_ui_on_input(&ui, now); }             // "< BACK" strip -> HOME
+                else { expo_sniff_start(&s_expo, now); radar_ui_note_input(&ui, now); }  // (re)scan
             } else {
                 radar_ui_on_input(&ui, now); send_request(); last_req = now;
             }
         }
-        // keep asking every ~1s while the screen is awake so data stays fresh
-        if (ui.backlight_on && now-last_req > 1000) { send_request(); last_req=now; }
+        // Exposure is modal: entering suspends the fleet link + goes promiscuous; leaving restores ch1.
+        if (ui.view == RADAR_VIEW_EXPOSURE && prev_view != RADAR_VIEW_EXPOSURE) {
+            espnow_suspended = true; expo_sniff_start(&s_expo, now);
+        } else if (ui.view != RADAR_VIEW_EXPOSURE && prev_view == RADAR_VIEW_EXPOSURE) {
+            expo_sniff_stop(); expo_reset(&s_expo); espnow_suspended = false;
+        }
+        if (ui.view == RADAR_VIEW_EXPOSURE) { expo_sniff_tick(now); expo_tick(&s_expo, now); }
+        prev_view = ui.view;
+        // keep asking every ~1s while the screen is awake so data stays fresh (not while sniffing)
+        if (ui.backlight_on && !espnow_suspended && now-last_req > 1000) { send_request(); last_req=now; }
 #ifdef SIMULACRA_FLEET_PROVISION
         if (s_enrreq_ready) enroll_process_request(now);
         if (now < s_pair_until_ms) {
@@ -866,17 +882,18 @@ void app_main(void)
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash){
-                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, NULL, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
-                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, NULL, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                     bool enr = draw_enroll_overlay(band, now);
                     if (enr)                                { /* enrollment banner owns the top */ }
                     else if (ui.view == RADAR_VIEW_CONTROL) draw_fleet_bar(band);
                     else if (ui.view == RADAR_VIEW_HOME)    { /* HOME strip shows liveness itself */ }
+                    else if (ui.view == RADAR_VIEW_EXPOSURE) { /* exposure is not fleet data */ }
                     else                                    draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
@@ -890,13 +907,13 @@ void app_main(void)
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash) {
-                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, NULL, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry
-                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, NULL, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
-                    if (ui.view != RADAR_VIEW_HOME) draw_freshness_overlay(band, now);
+                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE) draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
             }
