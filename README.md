@@ -27,6 +27,9 @@ signal out of the crowd — while passively watching for the trackers that follo
 It is built from cooperating nodes, each playing to a different board's strengths, coordinated
 over an encrypted ESP-NOW link.
 
+> **Try it in your browser — no toolchain.** Plug in a board and flash a starter fleet at
+> **[em3ritus.github.io/simulacra](https://em3ritus.github.io/simulacra/)** (desktop Chrome/Edge).
+
 ---
 
 ## ⚠️ Legal & responsible use
@@ -75,6 +78,10 @@ Roles are selected at build time so one firmware tree serves every board.
 - **Wi-Fi PAN cover:** independent, archetype-faithful probe-request agents (iPhone / Galaxy /
   Pixel / generic Android). Each fake phone carries its **own 802.11 sequence counter**, so the
   real device can't be fingerprinted out of the probe traffic by its sequence/timing constellation.
+  The agent population **matches the ambient device density** (divided across the live fleet so the
+  crowd never over-populates an empty room), and a realistic majority **probe named public networks**
+  — drawn from a fixed pool of ubiquitous open SSIDs (xfinitywifi, attwifi, eduroam …), **never an
+  observed or local one** — so the fake phones blend with the real phones probing the same hotspots.
 - On-device **self-learning** of ambient device *shapes* into new decoy archetypes (structure-only,
   Law-3 gated), synced across the fleet and persisted to an **encrypted-at-rest** SD library on Vigil.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
@@ -82,8 +89,10 @@ Roles are selected at build time so one firmware tree serves every board.
   NORMAL / DENSE / MAX) to every decoy over ESP-NOW.
 - **On-air fleet enrollment (ECDH):** decoys ship with no shared transport key and enroll on-air via
   a mutually-authenticated 3-message handshake, so **capturing a decoy does not compromise the fleet.**
-- **Vigil console:** live radar/threat display, touch-driven sigil dashboard, a per-node fleet
-  roster, and enroll/revoke control for fleet members.
+- **Vigil console:** an at-a-glance **protection posture** — one honest word for your current state
+  (`CLOAKED` / `EXPOSED` when there's no crowd to hide in / `HUNTED` when a follower is confirmed /
+  `DARK`) — plus a live radar/threat display, grouped status pages, a per-node fleet roster, and
+  enroll/revoke control for fleet members.
 - **Fleet health at a glance:** decoys report TX self-health and battery state over the link, so
   Vigil surfaces a `DEGRADED` or `LOW BATT` node on its roster before it goes quiet in the field.
 
@@ -106,6 +115,20 @@ Roles are selected at build time so one firmware tree serves every board.
 - **ESP32** "Cheap Yellow Display" (ILI9341 + XPT2046 touch + microSD) for Vigil.
 
 ## Build & flash
+
+### Flash from your browser — no toolchain (starter fleet)
+
+The fastest way to try Simulacra:
+
+### **→ [em3ritus.github.io/simulacra](https://em3ritus.github.io/simulacra/)**
+
+Open it in desktop **Chrome or Edge**, plug in a board, click **Connect & Flash** — the
+**browser web-flasher** (ESP Web Tools / Web Serial) auto-detects the chip and installs the right
+role (C5 → Ward, C6 → Shade, ESP32 → CYD), no ESP-IDF and no command line. It installs the
+**baked starter** regime (shared public key), so it's for trying Simulacra out, not a private
+deployment. Source and self-host notes: [`web/`](web/).
+
+### Build from source (full / provisioned regime)
 
 Requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) — v5.5 for the C5/C6 decoys,
 v5.4 for the Vigil (classic ESP32). With the IDF environment active:
@@ -145,6 +168,7 @@ tools/pcap_learn/         replay a BLE capture through the real learn/detect pip
 tools/decoy_audit/        score how separable the BLE decoys are from a real crowd
 tools/probe_audit/        verify Wi-Fi probe frames are archetype-faithful and Law-3 safe
 tools/seq_gate/           post-flash check that each fake phone's 802.11 sequence stays independent
+web/                      browser web-flasher (ESP Web Tools) — flash a starter fleet with no toolchain
 docs/                     design specs, implementation plans, hardware notes, and the roadmap
 ```
 
@@ -153,12 +177,14 @@ docs/                     design specs, implementation plans, hardware notes, an
 Simulacra's host tools compile the **real firmware code** (not reimplementations), so behaviour is
 verified against the same source that runs on-device:
 
-- **`tools/pcap_learn/`** — replay a BLE capture through the actual self-learning pipeline (validate
-  structure-only learning, emit a seed library) and the tracker matcher with dwell/co-travel analysis.
+- **`tools/pcap_learn/`** — replay a BLE capture (`.pcap` or `.pcapng`) through the actual
+  self-learning pipeline (validate structure-only learning, emit a seed library) and the tracker
+  matcher with dwell/co-travel analysis.
 - **`tools/decoy_audit/`** — compile the real BLE generator on the host and score how separable the
   synthetic crowd is from a real capture, as a ranked scorecard plus a single regression-gate number.
 - **`tools/probe_audit/`** — byte-exact verification that the Wi-Fi probe frames match real-phone
-  archetypes and never leak a directed SSID (the Law-3 guard).
+  archetypes, and that directed-SSID probes only ever name generic **public** networks from a fixed
+  compiled-in pool — never one sourced from observed or local traffic.
 - **`tools/seq_gate/`** — a two-board post-flash gate confirming each fake phone keeps its own
   802.11 sequence counter after an IDF/toolchain bump.
 
@@ -168,6 +194,16 @@ Each tool has its own README with build and run steps.
 
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **Browser web-flasher — [live](https://em3ritus.github.io/simulacra/).** Flash a starter fleet
+  from a web page — ESP Web Tools over Web Serial, auto-detecting the board and installing the right
+  role. A CI action builds the three firmwares and deploys the flasher to GitHub Pages on every
+  firmware change, so no binaries ever live in git.
+- **Protection posture + dashboard cleanup.** The Vigil now leads with one honest word for your
+  current state (`CLOAKED` / `EXPOSED` / `HUNTED` / `DARK`), and the data pages were reorganized into
+  grouped, aligned sections.
+- **Wi-Fi crowd realism.** Probe agents now match the ambient device density (divided across the live
+  fleet) and a realistic majority probe **named public networks** from a fixed pool — never an
+  observed SSID — closing the "everyone's a wildcard" behavioural tell.
 - **Cross-protocol personas (M10 v1).** BLE and Wi-Fi identities are now bound into single,
   co-present synthetic devices that appear and leave together — so a correlator can't isolate your
   real dual-radio phone by filtering out single-radio "ghosts." Persona BLE identities present a

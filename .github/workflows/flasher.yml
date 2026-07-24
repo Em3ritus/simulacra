@@ -51,7 +51,7 @@ jobs:
             target: esp32
             path: cyd
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Build BAKED (-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1, NO FLEET_PROVISION), then merge the
       # bootloader+partition+app into one offset-0 image via esptool (offsets come from flash_args).
@@ -72,7 +72,7 @@ jobs:
           mv ${{ matrix.path }}/${{ matrix.name }}.bin out/${{ matrix.name }}.bin
           ls -l out
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: fw-${{ matrix.name }}
           path: out/${{ matrix.name }}.bin
@@ -85,14 +85,14 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Assemble the site (page + manifest + firmware)
         run: |
           mkdir -p _site/firmware
           cp web/index.html web/manifest.json _site/
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dl
 
@@ -103,9 +103,9 @@ jobs:
           cp dl/fw-cyd/cyd.bin           _site/firmware/cyd.bin
           ls -l _site/firmware
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
