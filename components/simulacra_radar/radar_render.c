@@ -207,13 +207,13 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
         }
         radar_gfx_text(g, x+8, y+54, health, sc);
     }
-    static const sigil_id_t sig[6]={SIGIL_CIRCLE,SIGIL_HUNTER,SIGIL_LIVING,SIGIL_RITE,SIGIL_WARD,SIGIL_GRIMOIRE};
-    static const char *lbl[6]={"RADAR","FOLLOWERS","DECOYS","CONTROL","LIBRARY","INFO"};
-    for(int i=0;i<6;i++){
-        int cx=(i%2)*120, cy=104+(i/2)*64;
-        radar_gfx_fill_rect(g, cx+1, cy+1, 118, 62, COL_CRYPT);
-        radar_sigil_draw(g, sig[i], cx+22, cy+31, 12, COL_ARCANE);
-        radar_gfx_text(g, cx+42, cy+27, lbl[i], COL_BONE);
+    static const sigil_id_t sig[7]={SIGIL_CIRCLE,SIGIL_HUNTER,SIGIL_LIVING,SIGIL_RITE,SIGIL_WARD,SIGIL_GRIMOIRE,SIGIL_CIRCLE};
+    static const char *lbl[7]={"RADAR","FOLLOWERS","DECOYS","CONTROL","LIBRARY","INFO","EXPOSURE"};
+    for(int i=0;i<7;i++){                                          // 4 rows @ 48px to fit the 7th tile
+        int cx=(i%2)*120, cy=104+(i/2)*48;
+        radar_gfx_fill_rect(g, cx+1, cy+1, 118, 46, COL_CRYPT);
+        radar_sigil_draw(g, sig[i], cx+18, cy+23, 10, COL_ARCANE);
+        radar_gfx_text(g, cx+36, cy+19, lbl[i], COL_BONE);
     }
     radar_gfx_hline(g, 0, 239, 298, COL_EDGE);
     radar_gfx_text(g, 6, 304, "TAP AN ICON TO OPEN", COL_ASH);
@@ -226,10 +226,46 @@ static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st){
     fmt_uptime(v,sizeof v,st->uptime_s);           row_kv(g,y,"uptime",v); y+=16;
     row_kv(g,y,"firmware","cyd v1");
 }
+static void draw_exposure(radar_gfx_t *g, const exposure_t *e){
+    draw_header(g, "EXPOSURE");
+    if(!e || e->state == EXPO_IDLE){
+        radar_gfx_text(g, 24, 120, "TAP TO SCAN THE AIR", COL_BONE);
+        radar_gfx_text(g, 24, 150, "see what your phone leaks", COL_ASH);
+        return;
+    }
+    if(e->state == EXPO_BASELINE){
+        radar_gfx_text(g, 24, 130, "listening...", COL_ARCANE);
+        return;
+    }
+    if(e->state == EXPO_WATCH){
+        radar_gfx_text(g, 16, 120, "TOGGLE YOUR PHONE'S", COL_BONE);
+        radar_gfx_text(g, 16, 144, "WI-FI OFF, THEN ON", COL_BONE);
+        radar_gfx_text(g, 16, 176, "watching for the burst", COL_ASH);
+        return;
+    }
+    // RESULT
+    if(expo_ambiguous(e)){
+        radar_gfx_text(g, 24, 120, "no clear signal", COL_WARD);
+        radar_gfx_text(g, 24, 150, "TAP TO TRY AGAIN", COL_BONE);
+        return;
+    }
+    char l[40]; snprintf(l,sizeof l,"your phone: %d probes", expo_winner_probes(e));
+    radar_gfx_text(g, 12, 36, l, COL_HUNTER);
+    const char *ss[EXPO_MAX_SSIDS]; int n = expo_winner_ssids(e, ss, EXPO_MAX_SSIDS);
+    if(n == 0){
+        radar_gfx_text(g, 12, 70, "named no networks (good)", COL_CHANNEL);
+        radar_gfx_text(g, 12, 94, "but still announced itself", COL_ASH);
+    } else {
+        radar_gfx_text(g, 12, 66, "it announced it knows:", COL_ASH);
+        int y = 90;
+        for(int i=0;i<n && y<300;i++){ radar_gfx_text(g, 20, y, ss[i], COL_BONE); y+=18; }
+    }
+}
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
-                       uint16_t sweep, uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx){
+                       const exposure_t *expo, uint16_t sweep, uint16_t *band, int band_h, int w, int h,
+                       radar_flush_fn flush, void *ctx){
     for(int y0=0;y0<h;y0+=band_h){ radar_gfx_t g={ .buf=band, .w=w, .y0=y0, .h=band_h };
         radar_gfx_clear(&g,COL_BG);
         if(view==RADAR_VIEW_HOME) draw_home(&g,st,nodes,node_count);
@@ -238,6 +274,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
         else if(view==RADAR_VIEW_LIBRARY) draw_library(&g,lib);
         else if(view==RADAR_VIEW_CONTROL) draw_control(&g,ctrl);
         else if(view==RADAR_VIEW_INFO) draw_info(&g,st);
+        else if(view==RADAR_VIEW_EXPOSURE) draw_exposure(&g,expo);
         else draw_radar(&g,st,sweep);
         flush(y0, band_h, band, ctx); }
 }

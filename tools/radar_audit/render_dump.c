@@ -29,6 +29,30 @@ static void flush_noop(int y0, int h, const uint16_t *buf, void *ctx) { (void)y0
 
 int main(int argc, char **argv)
 {
+    if (argc > 1 && strcmp(argv[1], "--expo") == 0) {
+        int step = argc > 2 ? atoi(argv[2]) : 0;                    // 0 idle 1 baseline 2 watch 3 result
+        exposure_t e; expo_reset(&e);
+        if (step >= 1) expo_start(&e, 0);
+        if (step >= 2) expo_tick(&e, EXPO_BASELINE_MS + 1);         // -> WATCH
+        if (step >= 3) {
+            unsigned fp = argc > 3 ? (unsigned)strtoul(argv[3], 0, 16) : 0xbb;
+            int probes  = argc > 4 ? atoi(argv[4]) : 5;
+            int ambig   = argc > 5 ? atoi(argv[5]) : 0;
+            if (!ambig) {
+                for (int i = 0; i < probes; i++) expo_probe(&e, fp, 0, 0, EXPO_BASELINE_MS + 100);
+                if (argc > 6 && argv[6][0]) {                       // csv named SSIDs
+                    char buf[256]; strncpy(buf, argv[6], sizeof buf - 1); buf[sizeof buf - 1] = 0;
+                    for (char *t = strtok(buf, ","); t; t = strtok(0, ","))
+                        expo_probe(&e, fp, t, (uint8_t)strlen(t), EXPO_BASELINE_MS + 100);
+                }
+            }
+            expo_tick(&e, EXPO_BASELINE_MS + EXPO_WATCH_MS + 2);    // -> RESULT
+        }
+        static uint16_t eband[240 * 320];
+        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
+        return 0;
+    }
+
     int view = argc > 1 ? atoi(argv[1]) : RADAR_VIEW_STATS;
     radar_wire_status_t st; memset(&st, 0, sizeof st);
     if (argc > 2) st.form_restless  = (uint8_t)atoi(argv[2]);
@@ -54,7 +78,7 @@ int main(int argc, char **argv)
 
     static uint16_t band[240 * 320];
     // One full-height band: each draw_* runs once, so text is emitted a single time.
-    radar_render_view((radar_view_t)view, &st, nodes, 1, &lib, &ctrl, 0,
+    radar_render_view((radar_view_t)view, &st, nodes, 1, &lib, &ctrl, NULL, 0,
                       band, 320, 240, 320, flush_noop, NULL);
     return 0;
 }

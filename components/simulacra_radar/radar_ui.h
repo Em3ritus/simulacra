@@ -6,7 +6,8 @@
 #define RADAR_BL_IDLE_MS   30000u   // clear + idle this long -> backlight off
 
 typedef enum { RADAR_VIEW_HOME = 0, RADAR_VIEW_RADAR, RADAR_VIEW_DETAIL, RADAR_VIEW_STATS,
-               RADAR_VIEW_LIBRARY, RADAR_VIEW_CONTROL, RADAR_VIEW_INFO, RADAR_VIEW_COUNT } radar_view_t;
+               RADAR_VIEW_LIBRARY, RADAR_VIEW_CONTROL, RADAR_VIEW_INFO, RADAR_VIEW_EXPOSURE,
+               RADAR_VIEW_COUNT } radar_view_t;
 
 #define RADAR_CTRL_PRESET_COUNT 5
 #define RADAR_CTRL_FLASH_MS     1200u

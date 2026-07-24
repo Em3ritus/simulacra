@@ -1,6 +1,7 @@
 #pragma once
 #include "radar_ui.h"
 #include "radar_wire.h"
+#include "exposure.h"
 typedef void (*radar_flush_fn)(int y0, int h, const uint16_t *buf, void *ctx);
 typedef struct {                 // Vigil librarian snapshot for the LIBRARY page
     bool     sd_ok;
@@ -26,7 +27,9 @@ typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; } radar_
 // scratch buffer of w*band_h uint16; flush() pushes each band to the panel.
 // `lib` is the librarian snapshot for RADAR_VIEW_LIBRARY; NULL on non-librarian displays.
 // `ctrl` is the CONTROL-page state for RADAR_VIEW_CONTROL; NULL on non-Vigil / non-control.
+// `expo` is the exposure-session state for RADAR_VIEW_EXPOSURE; NULL on other views/displays.
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count,
-                       const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl, uint16_t sweep_deg,
+                       const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
+                       const exposure_t *expo, uint16_t sweep_deg,
                        uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx);

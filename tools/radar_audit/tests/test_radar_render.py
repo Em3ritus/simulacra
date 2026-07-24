@@ -161,5 +161,31 @@ class ProtectionPosture(unittest.TestCase):
             self.assertEqual(sum(1 for t in lines if t in words), 1, f"not exactly one posture: {lines}")
 
 
+def exposure(step, fp=0xbb, probes=5, ssids="HomeWiFi,CoffeeShop", ambiguous=0):
+    # render_dump --expo <step 0=idle 1=baseline 2=watch 3=result> <fp> <probes> <ambiguous> <ssids csv>
+    out = subprocess.check_output([EXE, "--expo", str(step), hex(fp), str(probes),
+                                   str(ambiguous), ssids], text=True)
+    return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class ExposureView(unittest.TestCase):
+    def test_idle_prompts_scan(self):
+        self.assertTrue(any("SCAN" in t.upper() for t in exposure(0)))
+
+    def test_watch_prompts_toggle(self):
+        t = exposure(2)
+        self.assertTrue(any("TOGGLE" in x.upper() or "WI-FI" in x.upper() for x in t))
+
+    def test_result_shows_leaked_ssids(self):
+        t = exposure(3, ssids="HomeWiFi,CoffeeShop")
+        self.assertTrue(any("HomeWiFi" in x for x in t))
+        self.assertTrue(any("CoffeeShop" in x for x in t))
+
+    def test_ambiguous_result_says_so(self):
+        t = exposure(3, ambiguous=1)
+        self.assertTrue(any("AGAIN" in x.upper() or "NO " in x.upper() for x in t))
+
+
 if __name__ == "__main__":
     unittest.main()
