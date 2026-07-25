@@ -205,7 +205,7 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
     // status area when >=1 is seen. Distinct from HUNTED (a follower) -- this is fixed infra nearby.
     int nsurv=0;
     for(uint8_t i=0;i<st->threat_count;i++) if(st->threats[i].category==SIG_CAT_CAMERA) nsurv++;
-    if(nsurv>0){ char sb[8]; snprintf(sb,sizeof sb,"!%d",nsurv); radar_gfx_text(g, 100, 9, sb, COL_HUNTER); }
+    if(nsurv>0){ char sb[16]; snprintf(sb,sizeof sb,"!%d",nsurv); radar_gfx_text(g, 100, 9, sb, COL_HUNTER); }
     int cols = nc < 1 ? 0 : (nc > 3 ? 3 : nc);
     for(int i=0;i<cols;i++){
         int x=i*80, y=30;
