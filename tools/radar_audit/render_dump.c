@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include "radar_render.h"
 #include "radar_sigil.h"
+#include "threat_sig.h"
 
 // --- stubbed primitives (no framebuffer; capture text only) ---
 void radar_gfx_clear(radar_gfx_t *g, uint16_t c) { (void)g; (void)c; }
@@ -71,6 +72,14 @@ int main(int argc, char **argv)
     }
     if (argc > 11) st.flags         = (uint8_t)atoi(argv[11]);
     if (argc > 12) st.uptime_s      = (uint32_t)strtoul(argv[12], 0, 10);
+    // arg 13: how many of the threats are SIG_CAT_CAMERA surveillance (Flock), the rest followers.
+    int ncam = argc > 13 ? atoi(argv[13]) : 0;
+    for (int i = 0; i < ncam && i < st.threat_count && i < RADAR_MAX_THREATS; i++) {
+        st.threats[i].kind     = DETECT_KIND_KNOWN;
+        st.threats[i].category = SIG_CAT_CAMERA;
+        st.threats[i].class_id = SIG_CLASS_FLOCK;
+        st.threats[i].best_rssi = -55;
+    }
 
     radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
     radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);

@@ -1,7 +1,7 @@
 #include "sig_seed.h"
 #include <string.h>
 
-#define SIG_SEED_VERSION 1
+#define SIG_SEED_VERSION 2
 
 // Starting vectors from public documentation; confirm against a live capture before bench sign-off.
 static const threat_sig_t SEED[] = {
@@ -20,6 +20,13 @@ static const threat_sig_t SEED[] = {
       .company_id=0xFFFF, .svc_uuid16=0xFEED, .addr_type_mask=0,
       .match_src=SIG_SRC_SVC_DATA, .pat_off=0, .pat_len=2,
       .pattern={0xED,0xFE}, .mask={0xFF,0xFF}, .confidence=75 },
+    // Flock Safety / Raven surveillance gear: BLE mfg company id 0x09C8 (XUNTONG module vendor,
+    // the signature the flockyou/DeFlock ecosystem uses). Company-id-only match (pat_len=0);
+    // moderate confidence -- 0x09C8 is the module vendor, not Flock-specific (documented ceiling).
+    { .sig_id=4, .category=SIG_CAT_CAMERA, .class_id=SIG_CLASS_FLOCK,
+      .company_id=0x09C8, .svc_uuid16=0x0000, .addr_type_mask=0,
+      .match_src=SIG_SRC_MFG_DATA, .pat_off=0, .pat_len=0,
+      .pattern={0}, .mask={0}, .confidence=60 },
 };
 
 uint16_t sig_seed_version(void) { return SIG_SEED_VERSION; }

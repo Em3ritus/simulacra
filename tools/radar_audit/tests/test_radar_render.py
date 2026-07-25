@@ -34,6 +34,45 @@ def stats(restless=0, wandering=0, bound=0, active=8, roster=16, target=8, uptim
     return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
 
 
+DETAIL = 2
+
+
+def detail(threats=0, ncam=0, esc=0):
+    # positional: view, restless,wandering,bound, active,roster,target, threats, pop, esc, flags, uptime, ncam
+    return render(DETAIL, 1, 1, 1, 8, 16, 8, threats, 10, esc, 0, 0, ncam)
+
+
+def home_surv(threats=0, ncam=0):
+    return render(HOME, 1, 1, 1, 8, 16, 8, threats, 10, 0, 0, 0, ncam)
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class SurveillancePresence(unittest.TestCase):
+    def test_camera_shows_surveillance_section(self):
+        texts = detail(threats=1, ncam=1)
+        self.assertIn("SURVEILLANCE", texts, f"no surveillance section; drew: {texts}")
+        self.assertIn("Flock", texts, f"no Flock label; drew: {texts}")
+
+    def test_camera_excluded_from_follower_count(self):
+        # 3 threats, 1 camera -> the follower summary counts only the 2 non-cameras
+        texts = detail(threats=3, ncam=1)
+        self.assertTrue(any("2 seen" in t for t in texts), f"follower count wrong; drew: {texts}")
+        self.assertIn("SURVEILLANCE", texts)
+
+    def test_followers_only_no_surveillance(self):
+        texts = detail(threats=2, ncam=0)
+        self.assertNotIn("SURVEILLANCE", texts, f"unexpected surveillance section; drew: {texts}")
+        self.assertTrue(any("2 seen" in t for t in texts))
+
+    def test_home_surveil_indicator_present(self):
+        texts = home_surv(threats=1, ncam=1)
+        self.assertIn("!1", texts, f"no HOME surveil indicator; drew: {texts}")
+
+    def test_home_no_indicator_without_camera(self):
+        texts = home_surv(threats=1, ncam=0)
+        self.assertFalse(any(t.startswith("!") for t in texts), f"unexpected indicator; drew: {texts}")
+
+
 @unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
 class StatsFormBreakdown(unittest.TestCase):
     def test_stats_shows_form_breakdown_values(self):

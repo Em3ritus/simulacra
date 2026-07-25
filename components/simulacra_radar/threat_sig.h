@@ -7,7 +7,7 @@
 #define SIG_DB_CAP  64          // RAM working set on both roles
 
 typedef enum { SIG_CAT_TRACKER = 0, SIG_CAT_CAMERA, SIG_CAT_BODYCAM, SIG_CAT_UNKNOWN, SIG_CAT_COUNT } sig_category_t;
-typedef enum { SIG_CLASS_AIRTAG = 0, SIG_CLASS_SMARTTAG, SIG_CLASS_TILE, SIG_CLASS_COUNT } sig_class_t;
+typedef enum { SIG_CLASS_AIRTAG = 0, SIG_CLASS_SMARTTAG, SIG_CLASS_TILE, SIG_CLASS_FLOCK, SIG_CLASS_COUNT } sig_class_t;
 typedef enum { SIG_SRC_MFG_DATA = 0, SIG_SRC_SVC_DATA, SIG_SRC_COUNT } sig_src_t;
 
 #define SIG_ADDR_PUBLIC  0x01

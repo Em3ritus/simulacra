@@ -75,17 +75,21 @@ static void draw_radar(radar_gfx_t *g, const radar_wire_status_t *st, uint16_t s
 }
 static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
     draw_header(g,"FOLLOWERS");
-    if(st->threat_count==0){ radar_gfx_text(g,16,40,"none detected",COL_ASH); return; }
-    // summary: total seen + how many escalated past NEW (recurring/persistent = "flagged")
-    int flagged=0;
-    for(uint8_t i=0;i<st->threat_count;i++)
+    // Partition threats: behavioral followers vs. SIG_CAT_CAMERA surveillance infrastructure.
+    int followers=0, cameras=0, flagged=0;
+    for(uint8_t i=0;i<st->threat_count;i++){
+        if(st->threats[i].category==SIG_CAT_CAMERA){ cameras++; continue; }
+        followers++;
         if(threat_escalation_level(st->threats[i].sessions_seen,st->threats[i].places_seen)!=ESCALATION_NEW) flagged++;
-    char s[32]; snprintf(s,sizeof s,"%u seen  %d flagged",(unsigned)st->threat_count,flagged);
-    radar_gfx_text(g,8,34,s,COL_ASH);
+    }
+    if(followers==0) radar_gfx_text(g,16,40,"none detected",COL_ASH);
+    else { char s[32]; snprintf(s,sizeof s,"%u seen  %d flagged",(unsigned)followers,flagged);
+           radar_gfx_text(g,8,34,s,COL_ASH); }
     radar_gfx_hline(g,8,231,50,COL_EDGE);
-    // one clean row per threat: [escalation dot] name   recurrence ........ rssi
+    // one clean row per follower: [escalation dot] name   recurrence ........ rssi
     int y=58;
-    for(uint8_t i=0;i<st->threat_count && y<310;i++){
+    for(uint8_t i=0;i<st->threat_count && y<250;i++){
+        if(st->threats[i].category==SIG_CAT_CAMERA) continue;              // cameras render below
         detect_escalation_t e = threat_escalation_level(st->threats[i].sessions_seen,st->threats[i].places_seen);
         uint16_t c = escalation_color(e);
         radar_gfx_fill_rect(g,8,y+2,6,6,c);                        // escalation dot (arcane/amber/red)
@@ -100,6 +104,19 @@ static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
         char r[12]; snprintf(r,sizeof r,"%ddB",(int)st->threats[i].best_rssi);
         radar_gfx_text(g,224-(int)strlen(r)*8,y,r,COL_ASH);        // rssi, right-aligned
         y+=18;
+    }
+    // SURVEILLANCE section: fixed infrastructure (Flock/Raven) -- present, not "following".
+    if(cameras>0){
+        y+=6;
+        radar_gfx_text(g,8,y,"SURVEILLANCE",COL_HUNTER); y+=20;
+        for(uint8_t i=0;i<st->threat_count && y<310;i++){
+            if(st->threats[i].category!=SIG_CAT_CAMERA) continue;
+            radar_gfx_fill_rect(g,8,y+2,6,6,COL_HUNTER);
+            radar_gfx_text(g,20,y,sig_class_name(st->threats[i].class_id),COL_HUNTER);
+            char r[12]; snprintf(r,sizeof r,"%ddB",(int)st->threats[i].best_rssi);
+            radar_gfx_text(g,224-(int)strlen(r)*8,y,r,COL_ASH);
+            y+=18;
+        }
     }
 }
 // --- shared data-page primitives: section headers + aligned label/value rows ------------------
@@ -184,6 +201,11 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
     int px = 232 - (int)strlen(pl) * 8;
     radar_gfx_text(g, px, 9, pl, posture_color(p));
     radar_gfx_text(g, px - 8 - 6 * 8, 9, "STATUS", COL_ASH);   // "STATUS" = 6 glyphs, 8px gap before the word
+    // Surveillance-presence count (Flock/Raven, category CAMERA): a compact "!N" left of the wordmark's
+    // status area when >=1 is seen. Distinct from HUNTED (a follower) -- this is fixed infra nearby.
+    int nsurv=0;
+    for(uint8_t i=0;i<st->threat_count;i++) if(st->threats[i].category==SIG_CAT_CAMERA) nsurv++;
+    if(nsurv>0){ char sb[16]; snprintf(sb,sizeof sb,"!%d",nsurv); radar_gfx_text(g, 100, 9, sb, COL_HUNTER); }
     int cols = nc < 1 ? 0 : (nc > 3 ? 3 : nc);
     for(int i=0;i<cols;i++){
         int x=i*80, y=30;
