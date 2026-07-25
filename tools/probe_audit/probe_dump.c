@@ -257,6 +257,33 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (argc > 1 && strcmp(argv[1], "--glidenext") == 0) {   // pure step: --glidenext <cur> <target> <step>
+        int cur  = argc > 2 ? (int)strtol(argv[2], 0, 10) : 0;
+        int tgt  = argc > 3 ? (int)strtol(argv[3], 0, 10) : 0;
+        int step = argc > 4 ? (int)strtol(argv[4], 0, 10) : 1;
+        printf("%d\n", probe_glide_next(cur, tgt, step));
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--glide") == 0) {   // stdin-driven glide session (see test_glide.py)
+        srand(argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1);
+        char line[64], cmd[16]; unsigned a, b;
+        while (fgets(line, sizeof line, stdin)) {
+            if (sscanf(line, "%15s", cmd) != 1) continue;
+            if (strcmp(cmd, "init") == 0 && sscanf(line, "%*s %u", &a) == 1) {
+                probe_agents_init((int)a, 0);
+                printf("%d\n", probe_agents_count());
+            } else if (strcmp(cmd, "target") == 0 && sscanf(line, "%*s %u %u", &a, &b) == 2) {
+                probe_agents_glide_set_target((int)b, a);
+                printf("%d\n", probe_agents_count());
+            } else if (strcmp(cmd, "tick") == 0 && sscanf(line, "%*s %u", &a) == 1) {
+                probe_agents_glide_tick(a);
+                printf("%d\n", probe_agents_count());
+            }
+        }
+        return 0;
+    }
+
     if (argc > 1 && strcmp(argv[1], "--pick") == 0) {
         srand(argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1);
         int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 1000;
