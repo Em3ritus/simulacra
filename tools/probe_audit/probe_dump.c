@@ -257,6 +257,14 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (argc > 1 && strcmp(argv[1], "--glidenext") == 0) {   // pure step: --glidenext <cur> <target> <step>
+        int cur  = argc > 2 ? (int)strtol(argv[2], 0, 10) : 0;
+        int tgt  = argc > 3 ? (int)strtol(argv[3], 0, 10) : 0;
+        int step = argc > 4 ? (int)strtol(argv[4], 0, 10) : 1;
+        printf("%d\n", probe_glide_next(cur, tgt, step));
+        return 0;
+    }
+
     if (argc > 1 && strcmp(argv[1], "--pick") == 0) {
         srand(argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1);
         int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 1000;

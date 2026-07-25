@@ -148,3 +148,11 @@ uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax)
     uint8_t which = (uint8_t)(esp_random() % a->ssid_n);
     return ssid_pool_render(a->ssid_idx[which], a->ssid_sfx[which], out, outmax);  // its OWN suffixed name
 }
+
+int probe_glide_next(int current, int target, int step)
+{
+    if (step < 0) step = -step;
+    if (current < target) { int d = target - current; return current + (d < step ? d : step); }
+    if (current > target) { int d = current - target; return current - (d < step ? d : step); }
+    return current;
+}

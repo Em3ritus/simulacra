@@ -50,3 +50,7 @@ int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_m
 // per-persona suffix) into `out`, returning the byte length; returns 0 (wildcard burst) for a
 // wildcard-only agent or a wildcard roll. Uses esp_random for the roll; does not mutate the agent.
 uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax);
+
+// Move `current` toward `target` by at most `step` (magnitude), never overshooting. Pure: the
+// glide's step arithmetic, isolated from the jitter clock so it is directly unit-testable.
+int probe_glide_next(int current, int target, int step);
