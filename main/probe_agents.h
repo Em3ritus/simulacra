@@ -54,3 +54,12 @@ uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax)
 // Move `current` toward `target` by at most `step` (magnitude), never overshooting. Pure: the
 // glide's step arithmetic, isolated from the jitter clock so it is directly unit-testable.
 int probe_glide_next(int current, int target, int step);
+
+// Record the desired applied population. The FIRST call after probe_agents_init applies immediately
+// (boot-instant, no ramp); later calls only record it — probe_agents_glide_tick ramps toward it by
+// GLIDE_STEP per jittered per-node interval. now_ms seeds/advances the glide clock.
+void probe_agents_glide_set_target(int target, uint32_t now_ms);
+
+// Advance the glide: if the per-node jittered interval has elapsed and the applied count differs
+// from the desired target, step it one toward the target. Self-gating; call it every Wi-Fi burst.
+void probe_agents_glide_tick(uint32_t now_ms);

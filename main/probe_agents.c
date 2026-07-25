@@ -13,9 +13,15 @@
 #define PERSONA_MAC_ROT_MAX_MS 900000u   // 15 min
 #define SSID_ASSIGN_PCT      62   // % of personas that get a named-SSID set (rest wildcard for life)
 #define SSID_BURST_NAMED_PCT 60   // for an assigned persona, % of bursts that name a network (on-air realism)
+#define GLIDE_STEP    1        // move the applied population one agent at a time (device-faithful)
+#define GLIDE_MIN_MS  30000u   // per-node jittered step interval: lower bound (~30 s)
+#define GLIDE_MAX_MS  60000u   // upper bound (~60 s); each step re-draws independently via esp_random
 
 static probe_agent_t s_agents[PROBE_AGENTS_MAX];
 static int           s_n;
+static int      s_glide_target;       // desired applied count the glide is ramping toward
+static bool     s_glide_armed;        // false until the first glide_set_target (boot-instant gate)
+static uint32_t s_next_glide_ms;      // earliest time the next +/-1 step may apply
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
 static uint32_t persona_mac_rotate_base(void) { return rnd_range(PERSONA_MAC_ROT_MIN_MS, PERSONA_MAC_ROT_MAX_MS); }
@@ -59,6 +65,7 @@ void probe_agents_init(int n, uint32_t now_ms)
     if (n > PROBE_AGENTS_MAX) n = PROBE_AGENTS_MAX;
     if (n < 1) n = 1;
     s_n = n;
+    s_glide_armed = false;                         // next glide_set_target is treated as boot (instant)
     for (int i = 0; i < s_n; i++) agent_spawn(&s_agents[i], now_ms);
 }
 
@@ -155,4 +162,24 @@ int probe_glide_next(int current, int target, int step)
     if (current < target) { int d = target - current; return current + (d < step ? d : step); }
     if (current > target) { int d = current - target; return current - (d < step ? d : step); }
     return current;
+}
+
+void probe_agents_glide_set_target(int target, uint32_t now_ms)
+{
+    s_glide_target = target;
+    if (!s_glide_armed) {                          // boot: apply the first target at once (no ramp)
+        s_glide_armed = true;
+        probe_agents_set_target(target, now_ms);
+        s_next_glide_ms = now_ms + rnd_range(GLIDE_MIN_MS, GLIDE_MAX_MS);
+    }
+}
+
+void probe_agents_glide_tick(uint32_t now_ms)
+{
+    if (!s_glide_armed) return;                    // nothing to glide toward yet
+    if ((int32_t)(now_ms - s_next_glide_ms) < 0) return;   // still within the jittered interval
+    int cur = probe_agents_count();
+    if (cur == s_glide_target) return;             // already there
+    probe_agents_set_target(probe_glide_next(cur, s_glide_target, GLIDE_STEP), now_ms);
+    s_next_glide_ms = now_ms + rnd_range(GLIDE_MIN_MS, GLIDE_MAX_MS);   // re-arm with a fresh draw
 }
