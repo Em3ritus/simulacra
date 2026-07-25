@@ -31,7 +31,10 @@ static void assign_ssids(probe_agent_t *a)
         int idx = ssid_pool_pick_weighted();
         int dup = 0;
         for (int j = 0; j < a->ssid_n; j++) if (a->ssid_idx[j] == (uint8_t)idx) dup = 1;
-        if (!dup) a->ssid_idx[a->ssid_n++] = (uint8_t)idx;
+        if (!dup) {
+            a->ssid_sfx[a->ssid_n] = (uint16_t)esp_random();     // stable per-router suffix seed
+            a->ssid_idx[a->ssid_n++] = (uint8_t)idx;
+        }
     }
 }
 
@@ -138,11 +141,10 @@ int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_m
     return 1;
 }
 
-const char *probe_agent_pick_ssid(const probe_agent_t *a, uint8_t *len_out)
+uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax)
 {
-    if (len_out) *len_out = 0;
     if (a->ssid_n == 0) return 0;                                // wildcard-only persona
     if ((esp_random() % 100u) >= SSID_BURST_NAMED_PCT) return 0; // this burst is wildcard
     uint8_t which = (uint8_t)(esp_random() % a->ssid_n);
-    return ssid_pool_at(a->ssid_idx[which], len_out);            // one of its OWN assigned names
+    return ssid_pool_render(a->ssid_idx[which], a->ssid_sfx[which], out, outmax);  // its OWN suffixed name
 }

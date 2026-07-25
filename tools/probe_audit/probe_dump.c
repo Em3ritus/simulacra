@@ -209,8 +209,8 @@ int main(int argc, char **argv)
         probe_agents_init(n, 0);
         for (int i = 0; i < probe_agents_count(); i++) {
             const probe_agent_t *a = probe_agents_at(i);
-            int named = 0; uint8_t L;
-            for (int b = 0; b < bursts; b++) if (probe_agent_pick_ssid(a, &L)) named++;
+            int named = 0; char sb[40];
+            for (int b = 0; b < bursts; b++) if (probe_agent_pick_ssid(a, sb, sizeof sb)) named++;
             printf("%d %d %d\n", i, (int)a->ssid_n, named);   // agent, assigned count, # named of `bursts`
         }
         return 0;
@@ -232,6 +232,14 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1], "--ssidrender") == 0) {   // --ssidrender <idx> <seed_hex> -> rendered name
+        int idx = argc > 2 ? (int)strtoul(argv[2], 0, 10) : 0;
+        uint16_t seed = argc > 3 ? (uint16_t)strtoul(argv[3], 0, 16) : 0;
+        char out[40];
+        uint8_t L = ssid_pool_render(idx, seed, out, sizeof out);
+        printf("%d %u %s\n", (int)ssid_pool_suffix_style(idx), (unsigned)L, out);
         return 0;
     }
     if (argc > 1 && strcmp(argv[1], "--ssidpool") == 0) {

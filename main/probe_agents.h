@@ -26,6 +26,7 @@ typedef struct {
     uint32_t     persona_gen;   // generation of the phantom this agent is bound to (0 = unbound)
     uint8_t      ssid_n;                    // # assigned named SSIDs; 0 = wildcard-only for this life
     uint8_t      ssid_idx[AGENT_SSID_MAX];  // indices into ssid_pool (assigned once per life)
+    uint16_t     ssid_sfx[AGENT_SSID_MAX];  // per-persona suffix seed -> a stable per-router name
 } probe_agent_t;
 
 void     probe_agents_init(int n, uint32_t now_ms);          // (re)seed n agents (<= PROBE_AGENTS_MAX)
@@ -45,6 +46,7 @@ const probe_agent_t *probe_agents_at(int i);
 int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_ms, uint32_t generation);
 
 // Choose this burst's SSID for agent a: a pool string (sets *len_out) to probe a NAMED network, or
-// NULL (*len_out=0) for a wildcard burst. Agents with ssid_n==0 always return NULL. Pure; uses
-// esp_random for the per-burst wildcard-vs-named roll. Does not mutate the agent.
-const char *probe_agent_pick_ssid(const probe_agent_t *a, uint8_t *len_out);
+// this burst's SSID for agent a: renders one of the agent's assigned pool names (with its stable
+// per-persona suffix) into `out`, returning the byte length; returns 0 (wildcard burst) for a
+// wildcard-only agent or a wildcard roll. Uses esp_random for the roll; does not mutate the agent.
+uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax);

@@ -50,5 +50,47 @@ class SsidPool(unittest.TestCase):
                 self.assertNotIn(f, includes, f"{fn} must not include {f}")
 
 
+def render(idx, seed=0x1234):
+    out = subprocess.check_output([EXE, "--ssidrender", str(idx), format(seed, "x")], text=True).strip()
+    parts = out.split(" ")
+    return int(parts[0]), int(parts[1]), " ".join(parts[2:])   # style, length, name
+
+
+def index_of(name):
+    _, entries = pool_entries()
+    for i, (_ln, n) in enumerate(entries):
+        if n == name:
+            return i
+    return -1
+
+
+@unittest.skipUnless(os.path.exists(EXE), "probe_dump not built")
+class SsidSuffix(unittest.TestCase):
+    def test_hex2_suffix(self):
+        i = index_of("spectrumsetup"); self.assertGreaterEqual(i, 0)
+        _, _, name = render(i, 0x00ab)
+        self.assertRegex(name, r"^spectrumsetup-[0-9a-f]{2}$")
+
+    def test_digit_suffix(self):
+        i = index_of("NETGEAR"); self.assertGreaterEqual(i, 0)
+        _, _, name = render(i, 0x0005)
+        self.assertRegex(name, r"^NETGEAR\d{2,3}$")
+
+    def test_none_style_renders_bare(self):
+        i = index_of("Guest"); self.assertGreaterEqual(i, 0)
+        self.assertEqual(render(i, 0x1234)[2], "Guest")
+
+    def test_render_deterministic_for_a_seed(self):
+        i = index_of("setup"); self.assertGreaterEqual(i, 0)
+        self.assertEqual(render(i, 0xbeef)[2], render(i, 0xbeef)[2])
+
+    def test_all_renders_within_max_len_and_length_matches(self):
+        count, _ = pool_entries()
+        for i in range(count):
+            _, length, name = render(i, 0xffff)
+            self.assertLessEqual(length, POOL_MAX_LEN, f"entry {i} too long")
+            self.assertEqual(length, len(name), f"entry {i} length mismatch")
+
+
 if __name__ == "__main__":
     unittest.main()
