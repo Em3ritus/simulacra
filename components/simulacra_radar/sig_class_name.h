@@ -7,6 +7,7 @@ static inline const char *sig_class_name(uint8_t class_id)
         case SIG_CLASS_SMARTTAG: return "SmartTag";
         case SIG_CLASS_TILE:     return "Tile";
         case SIG_CLASS_FLOCK:    return "Flock";
+        case SIG_CLASS_AXON:     return "Axon";
         default:                 return "?";
     }
 }

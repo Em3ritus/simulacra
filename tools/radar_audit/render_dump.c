@@ -72,12 +72,15 @@ int main(int argc, char **argv)
     }
     if (argc > 11) st.flags         = (uint8_t)atoi(argv[11]);
     if (argc > 12) st.uptime_s      = (uint32_t)strtoul(argv[12], 0, 10);
-    // arg 13: how many of the threats are SIG_CAT_CAMERA surveillance (Flock), the rest followers.
+    // arg 13: how many threats are surveillance; arg 14: kind (0=Flock/CAMERA, 1=Axon/BODYCAM).
     int ncam = argc > 13 ? atoi(argv[13]) : 0;
+    int surv_kind = argc > 14 ? atoi(argv[14]) : 0;
+    uint8_t sv_cat = surv_kind ? SIG_CAT_BODYCAM : SIG_CAT_CAMERA;
+    uint8_t sv_cls = surv_kind ? SIG_CLASS_AXON  : SIG_CLASS_FLOCK;
     for (int i = 0; i < ncam && i < st.threat_count && i < RADAR_MAX_THREATS; i++) {
         st.threats[i].kind     = DETECT_KIND_KNOWN;
-        st.threats[i].category = SIG_CAT_CAMERA;
-        st.threats[i].class_id = SIG_CLASS_FLOCK;
+        st.threats[i].category = sv_cat;
+        st.threats[i].class_id = sv_cls;
         st.threats[i].best_rssi = -55;
     }
 

@@ -14,7 +14,7 @@
 #include "sig_match.h"
 #include "sig_seed.h"
 
-static const char *CLASS_NAME[] = { "AirTag", "SmartTag", "Tile", "Flock" };
+static const char *CLASS_NAME[] = { "AirTag", "SmartTag", "Tile", "Flock", "Axon" };
 
 #define MAXADDR  32768
 #define RUN_GAP  60.0    /* silence longer than this = a new, separate encounter (not co-travel) */
@@ -151,7 +151,7 @@ int main(int argc, char **argv){
 
     printf("=== capture signature scan ===\n");
     printf("adverts scanned   : %u\n", adverts);
-    printf("signature DB      : %zu sigs (v%u): AirTag / SmartTag / Tile / Flock\n", ndb, sig_seed_version());
+    printf("signature DB      : %zu sigs (v%u): AirTag / SmartTag / Tile / Flock / Axon\n", ndb, sig_seed_version());
     printf("tracker hits      : %u  (unique devices: %zu)\n", hits, dwn);
     for (int c = 0; c < SIG_CLASS_COUNT; c++)
         printf("  %-9s: %u\n", CLASS_NAME[c], cls_hits[c]);

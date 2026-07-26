@@ -1,5 +1,6 @@
 #include "wifi_observe.h"
 #include "wifi_density.h"
+#include "surveil_oui.h"
 #include "fleet.h"
 #include "esp_wifi.h"
 #include "esp_timer.h"
@@ -14,6 +15,15 @@ static void rx_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     const wifi_promiscuous_pkt_t *p = (const wifi_promiscuous_pkt_t *)buf;
     if (p->rx_ctrl.sig_len < 24) return;
     const uint8_t *f = p->payload;
+    if (f[0] == 0x80) {                        // beacon: BSSID vs surveillance-vendor OUI watchlist
+        const uint8_t *bssid = f + 10;         // addr2 = the AP's MAC
+        uint32_t bnow = (uint32_t)(esp_timer_get_time() / 1000);
+        if (fleet_mac_excluded(bssid, bnow)) return;   // never flag our own fleet
+        uint8_t cls, cat;
+        if (surveil_oui_match(bssid, &cls, &cat))
+            surveil_note(surveil_hash(bssid), p->rx_ctrl.rssi, cls, cat);  // Law 1: hash, MAC dropped
+        return;
+    }
     if (f[0] != 0x40) return;                 // frame control: probe request
     const uint8_t *sa = f + 10;               // source MAC
     if (!(sa[0] & 0x02)) return;              // randomized (locally-administered) only = real-phone proxy
