@@ -74,6 +74,19 @@ class SurveillancePresence(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class SurveillanceBodycam(unittest.TestCase):
+    def test_bodycam_shows_surveillance_and_axon_label(self):
+        # DETAIL: 1 threat, 1 camera, surv_kind=1 (Axon/BODYCAM)
+        texts = render(DETAIL, 1, 1, 1, 8, 16, 8, 1, 10, 0, 0, 0, 1, 1)
+        self.assertIn("SURVEILLANCE", texts, f"no surveillance section; drew: {texts}")
+        self.assertIn("Axon", texts, f"no Axon label; drew: {texts}")
+
+    def test_home_indicator_for_bodycam(self):
+        texts = render(HOME, 1, 1, 1, 8, 16, 8, 1, 10, 0, 0, 0, 1, 1)
+        self.assertIn("!1", texts, f"no HOME surveil indicator for bodycam; drew: {texts}")
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
 class StatsFormBreakdown(unittest.TestCase):
     def test_stats_shows_form_breakdown_values(self):
         # restless=5 wandering=3 bound=7 -> the DECOYS page surfaces the RPA/NRPA/static split as an
