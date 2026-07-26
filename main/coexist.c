@@ -48,6 +48,7 @@ coexist_due_t coexist_due(const coexist_persona_t *p, uint32_t now_ms,
 #include "wifi_density.h"
 #include "probe_agents.h"
 #include "fleet_pop.h"
+#include "surveil_oui.h"
 #include <string.h>
 
 static const char *TAG = "coexist";
@@ -67,6 +68,7 @@ static int      s_listen_ch = -1;         // espnow: >=0 -> park Wi-Fi on this c
 
 // --- M9 detection wiring ---
 #define DETECT_EPOCH_DRIFT 0.45f           // detection-owned; separate from anti-entourage thresh
+#define SURVEIL_CONF       85              // vendor-owned-OUI Wi-Fi surveillance hit confidence
 #define COEX_SELF_MAX      16              // max decoy active-set MACs to self-exclude (Ward ceiling)
 static uint16_t s_epoch;                   // location-epoch counter
 static uint32_t s_detect_salt;             // per-install salt (stable across sweeps/reboots)
@@ -255,6 +257,14 @@ static void coexist_task(void *arg)
             int rc = detect_save_nvs();
             ESP_LOGW(TAG, "THREAT persisted id=%04x rc=%d", (unsigned)(nt.hash & 0xFFFF), rc);
         }
+        {                                               // Wi-Fi surveillance-OUI hits (RX thread) -> detector
+            uint32_t sh; int8_t sr; uint8_t sc, sk;
+            while (surveil_next(&sh, &sr, &sc, &sk)) {
+                if (detect_note_known(sh, sr, sk, sc, SURVEIL_CONF, s_epoch) == DETECT_CONFIRM)
+                    ESP_LOGW(TAG, "SURVEILLANCE %s id=%04x rssi=%d", sig_class_name(sk),
+                             (unsigned)(sh & 0xFFFF), sr);
+            }
+        }
         coexist_detect_led_tick(now);
         coexist_due_t d = coexist_due(p, now, &last_wifi, &last_repro);
         if (d.fire_wifi && s_wifi_ok) {
@@ -317,6 +327,7 @@ void coexist_start(void)
     }
     observe_reprofile_init(esp_random());
     s_detect_salt = detect_load_salt();          // M9: stable per-install salt
+    surveil_init(esp_random());                   // per-session salt for the Wi-Fi surveillance hits
     detect_begin_session();                       // escalation: bump + load the persistent boot-session id
     detect_load_nvs();                            // restore previously-confirmed threats (best-effort)
     observe_set_report_cb(coexist_on_report);     // subscribe the detector to raw reports
