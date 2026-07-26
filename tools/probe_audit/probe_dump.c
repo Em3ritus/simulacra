@@ -7,6 +7,7 @@
 #include "phantom.h"
 #include "wifi_density.h"
 #include "ssid_pool.h"
+#include "surveil_oui.h"
 
 /*
  * Host dumper for the probe-request archetype builder.
@@ -281,6 +282,18 @@ int main(int argc, char **argv)
                 printf("%d\n", probe_agents_count());
             }
         }
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--surveiloui") == 0) {   // --surveiloui <mac_hex_12>
+        uint8_t mac[6] = {0};
+        const char *h = argc > 2 ? argv[2] : "";
+        for (int i = 0; i < 6 && h[2*i] && h[2*i+1]; i++) {
+            char b[3] = { h[2*i], h[2*i+1], 0 }; mac[i] = (uint8_t)strtoul(b, 0, 16);
+        }
+        uint8_t cls = 255, cat = 255;
+        int m = surveil_oui_match(mac, &cls, &cat) ? 1 : 0;
+        printf("%d %d %d\n", m, (int)cls, (int)cat);
         return 0;
     }
 
