@@ -82,10 +82,12 @@
 #define SIMULACRA_DETECT 1
 #endif
 
-// Web UI: on-demand open config AP for ~2 min at boot, then hand Wi-Fi to the decoy.
-// Local MVP (open AP, no auth) -- default ON for now.
+// Web UI: on-demand open config AP at boot (status + /api/control), then hand Wi-Fi to the decoy.
+// DEFAULT OFF: the CYD is the control path over the encrypted ESP-NOW link, so the open, no-auth
+// simulacra-XXXX AP (a control surface + a self-identifying SSID tell) is opt-in only. Build a
+// no-CYD decoy with -DSIMULACRA_WEBUI=1 to re-enable it.
 #ifndef SIMULACRA_WEBUI
-#define SIMULACRA_WEBUI 1
+#define SIMULACRA_WEBUI 0
 #endif
 
 // Remote ESP-NOW radar link (answers a CYD's telemetry requests). Default 0.
