@@ -26,8 +26,16 @@ static void rx_cb(void *buf, wifi_promiscuous_pkt_type_t type)
     }
     if (f[0] != 0x40) return;                 // frame control: probe request
     const uint8_t *sa = f + 10;               // source MAC
-    if (!(sa[0] & 0x02)) return;              // randomized (locally-administered) only = real-phone proxy
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    // A probe request from a surveillance-vendor OUI (a real, globally-administered MAC) is a camera
+    // phoning home. Check BEFORE the randomized-only density filter, which would drop a real-OUI source.
+    uint8_t pcls, pcat;
+    if (surveil_oui_match(sa, &pcls, &pcat)) {
+        if (!fleet_mac_excluded(sa, now))
+            surveil_note(surveil_hash(sa), p->rx_ctrl.rssi, pcls, pcat);  // Law 1: hash, MAC dropped
+        return;
+    }
+    if (!(sa[0] & 0x02)) return;              // randomized (locally-administered) only = real-phone proxy
     if (fleet_mac_excluded(sa, now)) return;  // skip fleetmate decoys (our own are never received)
     wifi_obs_note(sa, now);                   // raw MAC hashed-and-dropped inside
 }
