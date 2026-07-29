@@ -29,3 +29,22 @@ class Surveil(unittest.TestCase):
 
     def test_random_does_not_match(self):
         self.assertEqual(match("123456789abc")[0], 0)
+
+
+def ssid_match(s):
+    out = subprocess.check_output([EXE, "--surveilssid", s], text=True).split()
+    return int(out[0]), int(out[1]), int(out[2])   # matched(0/1), class_id, category
+
+
+@unittest.skipUnless(os.path.exists(EXE), "probe_dump not built")
+class SurveilSsid(unittest.TestCase):
+    def test_test_flck_matches_flock_camera(self):
+        # SIG_CLASS_FLOCK = 3, SIG_CAT_CAMERA = 1
+        self.assertEqual(ssid_match("test_flck"), (1, 3, 1))
+
+    def test_other_ssid_does_not_match(self):
+        self.assertEqual(ssid_match("attwifi")[0], 0)
+
+    def test_length_prefix_does_not_match(self):
+        # exact-length match: an 8-char prefix of the 9-char name must NOT match
+        self.assertEqual(ssid_match("test_flc")[0], 0)

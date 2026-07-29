@@ -297,6 +297,14 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    if (argc > 1 && strcmp(argv[1], "--surveilssid") == 0) {   // --surveilssid <ascii_ssid>
+        const char *s = argc > 2 ? argv[2] : "";
+        uint8_t cls = 255, cat = 255;
+        int m = surveil_ssid_match((const uint8_t *)s, (uint8_t)strlen(s), &cls, &cat) ? 1 : 0;
+        printf("%d %d %d\n", m, (int)cls, (int)cat);
+        return 0;
+    }
+
     if (argc > 1 && strcmp(argv[1], "--pick") == 0) {
         srand(argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1);
         int n = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 1000;
