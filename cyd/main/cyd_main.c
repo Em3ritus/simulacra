@@ -162,6 +162,12 @@ static int     s_home_n;          // how many of s_home_ids are valid
 static uint32_t s_sel_threat;                       // THREAT view: hash of the threat being inspected
 static uint32_t s_threat_hashes[RADAR_MAX_THREATS]; // hashes of the threats agg last rendered, in order
 static int      s_threat_n;                          // how many of s_threat_hashes are valid
+static uint8_t  s_info_page;      // INFO view: 0 = system console, 1 = legend
+#ifdef SIMULACRA_FLOCK_FLOOD
+#define CYD_BUILD_TAG "cyd v2 flood"
+#else
+#define CYD_BUILD_TAG "cyd v2"
+#endif
 
 #ifdef SIMULACRA_FLEET_PROVISION
 // The ESP-NOW transport key is the provisioned fleet key (rotatable), not a baked constant.
@@ -832,6 +838,9 @@ void app_main(void)
                     }
                     radar_ui_note_input(&ui, now); send_request(); last_req = now;
                 }
+            } else if (ui.view == RADAR_VIEW_INFO) {
+                if (ty < 26) { radar_ui_on_input(&ui, now); }   // "< BACK" strip -> HOME
+                else { s_info_page ^= 1; radar_ui_note_input(&ui, now); }   // body -> flip page
             } else {
                 radar_ui_on_input(&ui, now); send_request(); last_req = now;
             }
@@ -930,6 +939,14 @@ void app_main(void)
             if (ui.view == RADAR_VIEW_THREAT)
                 for (int i = 0; i < (int)agg.threat_count; i++)
                     if (agg.threats[i].hash == s_sel_threat) { sel_threat = i; break; }
+            radar_sys_info_t sysinfo = {
+                .node_count = (uint8_t)fleet_status_count(&s_fleet),
+                .sig_ver    = s_sigdb_ver,
+                .sig_count  = (uint16_t)s_sigdb_n,
+                .link_age_s = s_status_ms ? (now - s_status_ms) / 1000 : UINT32_MAX,
+                .build      = CYD_BUILD_TAG,
+                .page       = s_info_page,
+            };
 #ifdef SIMULACRA_FLEET_PROVISION
             // The CONTROL page is static; re-rendering it every frame would re-flush the FLEET
             // bar over it each time and flicker. Redraw it only on change (preset / SEND / entry).
@@ -943,19 +960,20 @@ void app_main(void)
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash){
-                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
-                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                     bool enr = draw_enroll_overlay(band, now);
                     if (enr)                                { /* enrollment banner owns the top */ }
                     else if (ui.view == RADAR_VIEW_CONTROL) draw_fleet_bar(band);
                     else if (ui.view == RADAR_VIEW_HOME)    { /* HOME strip shows liveness itself */ }
                     else if (ui.view == RADAR_VIEW_EXPOSURE) { /* exposure is not fleet data */ }
                     else if (ui.view == RADAR_VIEW_NODE)    { /* NODE shows its own liveness */ }
+                    else if (ui.view == RADAR_VIEW_INFO)    { /* INFO shows link age in its own row */ }
                     else                                    draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
@@ -969,13 +987,13 @@ void app_main(void)
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash) {
-                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry
-                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
-                    if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE && ui.view != RADAR_VIEW_NODE) draw_freshness_overlay(band, now);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE && ui.view != RADAR_VIEW_NODE && ui.view != RADAR_VIEW_INFO) draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
             }

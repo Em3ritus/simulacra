@@ -13,6 +13,14 @@ typedef struct {                 // Vigil librarian snapshot for the LIBRARY pag
     uint32_t save_bytes;         // size of last sealed blob
 } radar_lib_info_t;
 typedef struct { uint8_t sel_preset; bool send_flash; } radar_ctrl_info_t;   // CONTROL page state
+typedef struct {                 // CYD system/fleet snapshot for the INFO page
+    uint8_t  node_count;         // meshing nodes
+    uint16_t sig_ver;            // signature-DB version
+    uint16_t sig_count;          // signatures loaded
+    uint32_t link_age_s;         // seconds since last status; UINT32_MAX = never
+    const char *build;           // firmware/build tag, e.g. "cyd v2 flood"
+    uint8_t  page;               // INFO view: 0 = system console, 1 = legend
+} radar_sys_info_t;
 // Honest at-a-glance protection posture (HOME headline). Priority HUNTED > DARK > EXPOSED > CLOAKED.
 typedef enum {
     RADAR_POSTURE_CLOAKED = 0,  // decoys active + a real ambient crowd to blend into
@@ -31,5 +39,5 @@ typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; uint32_t
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count, int sel_node, int sel_threat,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
-                       const exposure_t *expo, uint16_t sweep_deg,
+                       const exposure_t *expo, const radar_sys_info_t *sys, uint16_t sweep_deg,
                        uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx);
