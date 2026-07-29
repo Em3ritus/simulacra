@@ -916,13 +916,13 @@ void app_main(void)
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash){
-                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, -1, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
-                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, -1, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                     bool enr = draw_enroll_overlay(band, now);
                     if (enr)                                { /* enrollment banner owns the top */ }
                     else if (ui.view == RADAR_VIEW_CONTROL) draw_fleet_bar(band);
@@ -942,12 +942,12 @@ void app_main(void)
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash) {
-                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, -1, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry
-                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, -1, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                     if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE && ui.view != RADAR_VIEW_NODE) draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }

@@ -336,8 +336,17 @@ static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_c
     snprintf(v,sizeof v,"%d",nf); row_kv(g,288,"followers",v);
     snprintf(v,sizeof v,"%d",ns); row_kv(g,304,"surveillance",v);
 }
+static void draw_threat(radar_gfx_t *g, const radar_wire_status_t *st, int sel){
+    if (sel < 0 || sel >= st->threat_count) {
+        draw_header(g, "THREAT");
+        radar_gfx_text(g, 60, 150, "THREAT GONE", COL_ASH);
+        return;
+    }
+    char title[16]; snprintf(title, sizeof title, "THREAT %d/%u", sel + 1, (unsigned)st->threat_count);
+    draw_header(g, title);
+}
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
-                       const radar_node_view_t *nodes, int node_count, int sel_node,
+                       const radar_node_view_t *nodes, int node_count, int sel_node, int sel_threat,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
                        const exposure_t *expo, uint16_t sweep, uint16_t *band, int band_h, int w, int h,
                        radar_flush_fn flush, void *ctx){
@@ -351,6 +360,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
         else if(view==RADAR_VIEW_INFO) draw_info(&g,st);
         else if(view==RADAR_VIEW_EXPOSURE) draw_exposure(&g,expo);
         else if(view==RADAR_VIEW_NODE) draw_node(&g,nodes,node_count,sel_node);
+        else if(view==RADAR_VIEW_THREAT) draw_threat(&g,st,sel_threat);
         else draw_radar(&g,st,sweep);
         flush(y0, band_h, band, ctx); }
 }

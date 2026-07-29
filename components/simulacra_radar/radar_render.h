@@ -29,7 +29,7 @@ typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; uint32_t
 // `ctrl` is the CONTROL-page state for RADAR_VIEW_CONTROL; NULL on non-Vigil / non-control.
 // `expo` is the exposure-session state for RADAR_VIEW_EXPOSURE; NULL on other views/displays.
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
-                       const radar_node_view_t *nodes, int node_count, int sel_node,
+                       const radar_node_view_t *nodes, int node_count, int sel_node, int sel_threat,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
                        const exposure_t *expo, uint16_t sweep_deg,
                        uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx);
