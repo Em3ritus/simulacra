@@ -243,13 +243,34 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
     radar_gfx_hline(g, 0, 239, 298, COL_EDGE);
     radar_gfx_text(g, 6, 304, "TAP AN ICON TO OPEN", COL_ASH);
 }
-static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st){
+static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st,
+                      const radar_lib_info_t *lib, const radar_sys_info_t *sys){
+    if (sys && sys->page == 1) {          // page 1 = legend (filled in Task 2)
+        draw_header(g, "LEGEND");
+        return;
+    }
     draw_header(g, "INFO");
-    char v[24]; int y = 36;
-    row_section(g, y, "SYSTEM"); y += 18;
-    snprintf(v,sizeof v,"%u",(unsigned)st->epoch); row_kv(g,y,"epoch",v); y+=16;
-    fmt_uptime(v,sizeof v,st->uptime_s);           row_kv(g,y,"uptime",v); y+=16;
-    row_kv(g,y,"firmware","cyd v1");
+    char v[24];
+    row_section(g, 34, "FLEET");
+    snprintf(v,sizeof v,"%u",(unsigned)(sys ? sys->node_count : 0)); row_kv(g,52,"nodes",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_devices);          row_kv(g,68,"decoys",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_target);           row_kv(g,84,"target",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->pop_ewma);                row_kv(g,100,"real crowd",v);
+    row_section(g, 118, "SIGNATURES");
+    if (sys) { snprintf(v,sizeof v,"v%u (%u)",(unsigned)sys->sig_ver,(unsigned)sys->sig_count); row_kv(g,136,"sig db",v); }
+    else     row_kv(g,136,"sig db","-");
+    if (lib) { snprintf(v,sizeof v,"%u/%u",(unsigned)lib->lib_count,(unsigned)lib->lib_cap); row_kv(g,152,"shapes",v); }
+    else     row_kv(g,152,"shapes","-");
+    row_section(g, 170, "STORAGE");
+    if (lib && lib->sd_ok) { snprintf(v,sizeof v,"OK %luMB",(unsigned long)lib->card_mb); row_kv(g,188,"card",v); }
+    else                   row_kv(g,188,"card", lib ? "ABSENT" : "-");
+    row_section(g, 206, "LINK");
+    if (sys && sys->link_age_s != UINT32_MAX) { snprintf(v,sizeof v,"%lus ago",(unsigned long)sys->link_age_s); row_kv(g,224,"last status",v); }
+    else                                       row_kv(g,224,"last status","never");
+    row_section(g, 242, "SYSTEM");
+    fmt_uptime(v,sizeof v,st->uptime_s);          row_kv(g,260,"uptime",v);
+    row_kv(g,276,"firmware", (sys && sys->build) ? sys->build : "cyd");
+    radar_gfx_text(g, 8, 298, "TAP: LEGEND", COL_ASH);
 }
 static void draw_exposure(radar_gfx_t *g, const exposure_t *e){
     draw_header(g, "EXPOSURE");
@@ -378,7 +399,7 @@ static void draw_threat(radar_gfx_t *g, const radar_wire_status_t *st, int sel){
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count, int sel_node, int sel_threat,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
-                       const exposure_t *expo, uint16_t sweep, uint16_t *band, int band_h, int w, int h,
+                       const exposure_t *expo, const radar_sys_info_t *sys, uint16_t sweep, uint16_t *band, int band_h, int w, int h,
                        radar_flush_fn flush, void *ctx){
     for(int y0=0;y0<h;y0+=band_h){ radar_gfx_t g={ .buf=band, .w=w, .y0=y0, .h=band_h };
         radar_gfx_clear(&g,COL_BG);
@@ -387,7 +408,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
         else if(view==RADAR_VIEW_STATS) draw_stats(&g,st);
         else if(view==RADAR_VIEW_LIBRARY) draw_library(&g,lib);
         else if(view==RADAR_VIEW_CONTROL) draw_control(&g,ctrl);
-        else if(view==RADAR_VIEW_INFO) draw_info(&g,st);
+        else if(view==RADAR_VIEW_INFO) draw_info(&g,st,lib,sys);
         else if(view==RADAR_VIEW_EXPOSURE) draw_exposure(&g,expo);
         else if(view==RADAR_VIEW_NODE) draw_node(&g,nodes,node_count,sel_node);
         else if(view==RADAR_VIEW_THREAT) draw_threat(&g,st,sel_threat);

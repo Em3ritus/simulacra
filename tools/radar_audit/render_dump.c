@@ -5,6 +5,7 @@
 //
 //   render_dump <view> [restless wandering bound active_devices roster target threat_count]
 //   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node) 9 THREAT (via --threat)
+//   INFO 2-page console via --info <page nodes sigver sigcount linkage libcount libcap cardmb sdok decoys target pop uptime>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -50,7 +51,7 @@ int main(int argc, char **argv)
             expo_tick(&e, EXPO_BASELINE_MS + EXPO_WATCH_MS + 2);    // -> RESULT
         }
         static uint16_t eband[240 * 320];
-        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, -1, -1, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
+        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, -1, -1, 0, 0, &e, NULL, 0, eband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
@@ -84,7 +85,7 @@ int main(int argc, char **argv)
         }
         static uint16_t nband[240 * 320];
         radar_node_view_t nodes[1] = { { (uint8_t)id, &st, alive != 0, age } };
-        radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, -1, 0, 0, NULL, 0,
+        radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, -1, 0, 0, NULL, NULL, 0,
                           nband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
@@ -116,8 +117,39 @@ int main(int argc, char **argv)
         st.threats[t].first_epoch = (uint16_t)first; st.threats[t].last_epoch = (uint16_t)last;
         st.threats[t].sessions_seen = (uint8_t)sess; st.threats[t].places_seen = (uint8_t)places;
         static uint16_t tband[240 * 320];
-        radar_render_view(RADAR_VIEW_THREAT, &st, 0, 0, -1, sel, 0, 0, NULL, 0,
+        radar_render_view(RADAR_VIEW_THREAT, &st, 0, 0, -1, sel, 0, 0, NULL, NULL, 0,
                           tband, 320, 240, 320, flush_noop, 0);
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--info") == 0) {
+        int a = 2;
+        int page   = argc > a ? atoi(argv[a]) : 0; a++;
+        int nodes  = argc > a ? atoi(argv[a]) : 0; a++;
+        int sigver = argc > a ? atoi(argv[a]) : 0; a++;
+        int sigcnt = argc > a ? atoi(argv[a]) : 0; a++;
+        unsigned long linkage = argc > a ? strtoul(argv[a], 0, 10) : 0; a++;
+        int libcount = argc > a ? atoi(argv[a]) : 0; a++;
+        int libcap   = argc > a ? atoi(argv[a]) : 0; a++;
+        int cardmb   = argc > a ? atoi(argv[a]) : 0; a++;
+        int sdok     = argc > a ? atoi(argv[a]) : 0; a++;
+        int decoys   = argc > a ? atoi(argv[a]) : 0; a++;
+        int target   = argc > a ? atoi(argv[a]) : 0; a++;
+        int pop      = argc > a ? atoi(argv[a]) : 0; a++;
+        unsigned long uptime = argc > a ? strtoul(argv[a], 0, 10) : 0; a++;
+        radar_wire_status_t st; memset(&st, 0, sizeof st);
+        st.active_devices = (uint16_t)decoys; st.active_target = (uint8_t)target;
+        st.pop_ewma = (uint16_t)pop; st.uptime_s = (uint32_t)uptime;
+        radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
+        lib.sd_ok = sdok != 0; lib.card_mb = (uint32_t)cardmb;
+        lib.lib_count = (uint16_t)libcount; lib.lib_cap = (uint16_t)libcap;
+        radar_sys_info_t sys; memset(&sys, 0, sizeof sys);
+        sys.node_count = (uint8_t)nodes; sys.sig_ver = (uint16_t)sigver;
+        sys.sig_count = (uint16_t)sigcnt; sys.link_age_s = (uint32_t)linkage;
+        sys.build = "cydtest"; sys.page = (uint8_t)page;
+        static uint16_t iband[240 * 320];
+        radar_render_view(RADAR_VIEW_INFO, &st, 0, 0, -1, -1, &lib, 0, 0, &sys, 0,
+                          iband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
@@ -157,7 +189,7 @@ int main(int argc, char **argv)
 
     static uint16_t band[240 * 320];
     // One full-height band: each draw_* runs once, so text is emitted a single time.
-    radar_render_view((radar_view_t)view, &st, nodes, 1, -1, -1, &lib, &ctrl, NULL, 0,
+    radar_render_view((radar_view_t)view, &st, nodes, 1, -1, -1, &lib, &ctrl, NULL, NULL, 0,
                       band, 320, 240, 320, flush_noop, NULL);
     return 0;
 }
