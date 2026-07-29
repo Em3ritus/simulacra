@@ -114,6 +114,8 @@ static void draw_detail(radar_gfx_t *g, const radar_wire_status_t *st){
             if(!is_surveil_cat(st->threats[i].category)) continue;
             radar_gfx_fill_rect(g,8,y+2,6,6,COL_HUNTER);
             radar_gfx_text(g,20,y,sig_class_name(st->threats[i].class_id),COL_HUNTER);
+            char cf[8]; snprintf(cf,sizeof cf,"%u%%",(unsigned)st->threats[i].confidence);
+            radar_gfx_text(g,120,y,cf,COL_ASH);
             char r[12]; snprintf(r,sizeof r,"%ddB",(int)st->threats[i].best_rssi);
             radar_gfx_text(g,224-(int)strlen(r)*8,y,r,COL_ASH);
             y+=18;
@@ -336,14 +338,42 @@ static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_c
     snprintf(v,sizeof v,"%d",nf); row_kv(g,288,"followers",v);
     snprintf(v,sizeof v,"%d",ns); row_kv(g,304,"surveillance",v);
 }
+static const char *cat_name(uint8_t c){
+    return c==SIG_CAT_TRACKER?"TRACKER":c==SIG_CAT_CAMERA?"CAMERA":
+           c==SIG_CAT_BODYCAM?"BODYCAM":"UNKNOWN";
+}
 static void draw_threat(radar_gfx_t *g, const radar_wire_status_t *st, int sel){
     if (sel < 0 || sel >= st->threat_count) {
         draw_header(g, "THREAT");
         radar_gfx_text(g, 60, 150, "THREAT GONE", COL_ASH);
         return;
     }
+    int i = sel;
     char title[16]; snprintf(title, sizeof title, "THREAT %d/%u", sel + 1, (unsigned)st->threat_count);
     draw_header(g, title);
+    detect_escalation_t e = threat_escalation_level(st->threats[i].sessions_seen, st->threats[i].places_seen);
+    uint16_t ec = escalation_color(e);
+    bool known = (st->threats[i].kind == DETECT_KIND_KNOWN);
+    char sub[32];
+    if (known) snprintf(sub, sizeof sub, "%s  %s", sig_class_name(st->threats[i].class_id), cat_name(st->threats[i].category));
+    else       snprintf(sub, sizeof sub, "%08lx  %s", (unsigned long)st->threats[i].hash, cat_name(st->threats[i].category));
+    radar_gfx_text(g, 8, 32, sub, ec);
+    char v[24];
+    row_section(g, 50, "CLASSIFICATION");
+    row_kv(g, 68, "kind", known ? "known" : "behavioral");
+    row_kv(g, 84, "class", known ? sig_class_name(st->threats[i].class_id) : "-");
+    row_kv(g, 100, "category", cat_name(st->threats[i].category));
+    if (known) { snprintf(v,sizeof v,"%u%%",(unsigned)st->threats[i].confidence); row_kv(g,116,"confidence",v); }
+    else       row_kv(g,116,"confidence","-");
+    if (st->threats[i].vendor != 0 && st->threats[i].vendor != 0xFFFF) { snprintf(v,sizeof v,"0x%04X",(unsigned)st->threats[i].vendor); row_kv(g,132,"vendor",v); }
+    else       row_kv(g,132,"vendor","-");
+    row_section(g, 150, "SIGHTING");
+    snprintf(v,sizeof v,"%ddB",(int)st->threats[i].best_rssi); row_kv(g,168,"rssi",v);
+    row_kv(g,184,"escalation", e==ESCALATION_PERSISTENT?"PERSISTENT":e==ESCALATION_RECURRING?"RECURRING":"NEW");
+    snprintf(v,sizeof v,"%u",(unsigned)st->threats[i].sessions_seen); row_kv(g,200,"sessions",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->threats[i].places_seen);   row_kv(g,216,"places",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->threats[i].epochs);        row_kv(g,232,"epochs",v);
+    snprintf(v,sizeof v,"e%u..e%u",(unsigned)st->threats[i].first_epoch,(unsigned)st->threats[i].last_epoch); row_kv(g,248,"span",v);
 }
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count, int sel_node, int sel_threat,
