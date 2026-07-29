@@ -4,7 +4,7 @@
 // pixel framebuffer. One full-height band so each draw_* runs exactly once.
 //
 //   render_dump <view> [restless wandering bound active_devices roster target threat_count]
-//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node)
+//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node) 9 THREAT (via --threat)
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -50,7 +50,7 @@ int main(int argc, char **argv)
             expo_tick(&e, EXPO_BASELINE_MS + EXPO_WATCH_MS + 2);    // -> RESULT
         }
         static uint16_t eband[240 * 320];
-        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, -1, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
+        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, -1, -1, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
@@ -84,8 +84,40 @@ int main(int argc, char **argv)
         }
         static uint16_t nband[240 * 320];
         radar_node_view_t nodes[1] = { { (uint8_t)id, &st, alive != 0, age } };
-        radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, 0, 0, NULL, 0,
+        radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, -1, 0, 0, NULL, 0,
                           nband, 320, 240, 320, flush_noop, 0);
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--threat") == 0) {
+        int a = 2;
+        int sel   = argc > a ? atoi(argv[a]) : 0; a++;
+        int count = argc > a ? atoi(argv[a]) : 1; a++;
+        int kind  = argc > a ? atoi(argv[a]) : 1; a++;
+        int cls   = argc > a ? atoi(argv[a]) : 0; a++;
+        int cat   = argc > a ? atoi(argv[a]) : 0; a++;
+        int conf  = argc > a ? atoi(argv[a]) : 0; a++;
+        int vendor= argc > a ? (int)strtol(argv[a], 0, 0) : 0; a++;
+        int rssi  = argc > a ? atoi(argv[a]) : 0; a++;
+        int epochs= argc > a ? atoi(argv[a]) : 0; a++;
+        int first = argc > a ? atoi(argv[a]) : 0; a++;
+        int last  = argc > a ? atoi(argv[a]) : 0; a++;
+        int sess  = argc > a ? atoi(argv[a]) : 0; a++;
+        int places= argc > a ? atoi(argv[a]) : 0; a++;
+        radar_wire_status_t st; memset(&st, 0, sizeof st);
+        if (count > RADAR_MAX_THREATS) count = RADAR_MAX_THREATS;
+        st.threat_count = (uint8_t)count;
+        int t = (sel >= 0 && sel < count) ? sel : 0;
+        st.threats[t].hash = 0xABCD1234u;
+        st.threats[t].kind = (uint8_t)kind; st.threats[t].class_id = (uint8_t)cls;
+        st.threats[t].category = (uint8_t)cat; st.threats[t].confidence = (uint8_t)conf;
+        st.threats[t].vendor = (uint16_t)vendor; st.threats[t].best_rssi = (int8_t)rssi;
+        st.threats[t].epochs = (uint8_t)epochs;
+        st.threats[t].first_epoch = (uint16_t)first; st.threats[t].last_epoch = (uint16_t)last;
+        st.threats[t].sessions_seen = (uint8_t)sess; st.threats[t].places_seen = (uint8_t)places;
+        static uint16_t tband[240 * 320];
+        radar_render_view(RADAR_VIEW_THREAT, &st, 0, 0, -1, sel, 0, 0, NULL, 0,
+                          tband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
@@ -125,7 +157,7 @@ int main(int argc, char **argv)
 
     static uint16_t band[240 * 320];
     // One full-height band: each draw_* runs once, so text is emitted a single time.
-    radar_render_view((radar_view_t)view, &st, nodes, 1, -1, &lib, &ctrl, NULL, 0,
+    radar_render_view((radar_view_t)view, &st, nodes, 1, -1, -1, &lib, &ctrl, NULL, 0,
                       band, 320, 240, 320, flush_noop, NULL);
     return 0;
 }
