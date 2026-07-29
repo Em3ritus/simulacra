@@ -26,5 +26,37 @@ class NodeScaffold(unittest.TestCase):
         self.assertIn("NODE GONE", texts, f"no gone placeholder; drew: {texts}")
 
 
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class NodeBody(unittest.TestCase):
+    def test_sections_present(self):
+        texts = node()
+        for s in ("CROWD", "POWER", "SYSTEM", "DETECTIONS"):
+            self.assertIn(s, texts, f"missing section {s}; drew: {texts}")
+        for label in ("decoys", "target", "roster", "rpa/nrpa/static",
+                      "real crowd", "battery", "epoch", "probes", "churn", "uptime"):
+            self.assertIn(label, texts, f"missing row {label}; drew: {texts}")
+
+    def test_health_channel_when_alive(self):
+        self.assertIn("CHANNEL", node(alive=1, flags=0))
+
+    def test_battery_usb(self):
+        self.assertIn("USB", node(batt_mv=0))
+
+    def test_battery_pct_format(self):
+        self.assertIn("83% 3.9V", node(batt_mv=3900, batt_pct=83))
+
+    def test_battery_voltage_only(self):
+        self.assertIn("3.90V", node(batt_mv=3900, batt_pct=255))
+
+    def test_churn_paused(self):
+        self.assertIn("PAUSED", node(flags=1))
+
+    def test_detections_partition(self):
+        # 3 threats, 1 surveillance -> followers 2, surveillance 1
+        texts = node(threats=3, ncam=1)
+        i = texts.index("followers"); self.assertEqual(texts[i + 1], "2", f"drew: {texts}")
+        j = texts.index("surveillance"); self.assertEqual(texts[j + 1], "1", f"drew: {texts}")
+
+
 if __name__ == "__main__":
     unittest.main()

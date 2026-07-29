@@ -290,8 +290,51 @@ static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_c
         radar_gfx_text(g, 72, 150, "NODE GONE", COL_ASH);
         return;
     }
-    char title[12]; snprintf(title, sizeof title, "NODE N%u", (unsigned)nodes[sel].id);
+    const radar_node_view_t *nv = &nodes[sel];
+    const radar_wire_status_t *st = nv->st;
+    char title[12]; snprintf(title, sizeof title, "NODE N%u", (unsigned)nv->id);
     draw_header(g, title);
+    // subline: health word (+ liveness age when silent)
+    bool alive = nv->alive;
+    bool low_batt = alive && (st->flags & 0x08);
+    bool degraded = alive && (st->flags & 0x04);
+    uint16_t sc = !alive ? COL_ASH : (low_batt || degraded) ? COL_WARD : COL_CHANNEL;
+    const char *health = !alive ? "SILENT" : low_batt ? "LOW BATT" : degraded ? "DEGRADED" : "CHANNEL";
+    radar_gfx_text(g, 8, 32, health, sc);
+    if (!alive) { char ag[20]; snprintf(ag, sizeof ag, "seen %us ago", (unsigned)nv->age_s);
+                  radar_gfx_text(g, 104, 32, ag, COL_ASH); }
+    char v[24];
+    // CROWD
+    row_section(g, 50, "CROWD");
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_devices); row_kv(g,68,"decoys",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->active_target);  row_kv(g,84,"target",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->roster_size);    row_kv(g,100,"roster",v);
+    snprintf(v,sizeof v,"%u / %u / %u",(unsigned)st->form_restless,(unsigned)st->form_wandering,(unsigned)st->form_bound);
+    row_kv(g,116,"rpa/nrpa/static",v);
+    snprintf(v,sizeof v,"%u",(unsigned)st->pop_ewma);       row_kv(g,132,"real crowd",v);
+    // POWER
+    row_section(g, 150, "POWER");
+    if (st->battery_mv == 0) row_kv(g,168,"battery","USB");
+    else if (st->battery_pct != 0xFF) {
+        snprintf(v,sizeof v,"%u%% %u.%01uV",(unsigned)st->battery_pct,
+                 (unsigned)(st->battery_mv/1000),(unsigned)((st->battery_mv%1000)/100));
+        row_kv(g,168,"battery",v);
+    } else {
+        snprintf(v,sizeof v,"%u.%02uV",(unsigned)(st->battery_mv/1000),(unsigned)((st->battery_mv%1000)/10));
+        row_kv(g,168,"battery",v);
+    }
+    // SYSTEM
+    row_section(g, 188, "SYSTEM");
+    snprintf(v,sizeof v,"%u",(unsigned)st->epoch);              row_kv(g,206,"epoch",v);
+    snprintf(v,sizeof v,"%lu",(unsigned long)st->probes_sent);  row_kv(g,222,"probes",v);
+    row_kv(g,238,"churn",(st->flags&0x1)?"PAUSED":"running");
+    fmt_uptime(v,sizeof v,st->uptime_s);                        row_kv(g,254,"uptime",v);
+    // DETECTIONS (this node's own counts; the list lives on the aggregate FOLLOWERS view)
+    int nf=0, ns=0;
+    for(uint8_t i=0;i<st->threat_count;i++){ if(is_surveil_cat(st->threats[i].category)) ns++; else nf++; }
+    row_section(g, 272, "DETECTIONS");
+    snprintf(v,sizeof v,"%d",nf); row_kv(g,288,"followers",v);
+    snprintf(v,sizeof v,"%d",ns); row_kv(g,304,"surveillance",v);
 }
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        const radar_node_view_t *nodes, int node_count, int sel_node,
