@@ -245,8 +245,37 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
 }
 static void draw_info(radar_gfx_t *g, const radar_wire_status_t *st,
                       const radar_lib_info_t *lib, const radar_sys_info_t *sys){
-    if (sys && sys->page == 1) {          // page 1 = legend (filled in Task 2)
+    if (sys && sys->page == 1) {          // page 1 = legend
         draw_header(g, "LEGEND");
+        row_section(g, 32, "POSTURE");
+        radar_gfx_text(g, 16, 48, "CLOAKED", posture_color(RADAR_POSTURE_CLOAKED));
+        radar_gfx_text(g, 104, 48, "hidden in crowd", COL_ASH);
+        radar_gfx_text(g, 16, 62, "EXPOSED", posture_color(RADAR_POSTURE_EXPOSED));
+        radar_gfx_text(g, 104, 62, "no crowd", COL_ASH);
+        radar_gfx_text(g, 16, 76, "DARK", posture_color(RADAR_POSTURE_DARK));
+        radar_gfx_text(g, 104, 76, "decoys paused", COL_ASH);
+        radar_gfx_text(g, 16, 90, "HUNTED", posture_color(RADAR_POSTURE_HUNTED));
+        radar_gfx_text(g, 104, 90, "follower here", COL_ASH);
+        row_section(g, 108, "ESCALATION");
+        radar_gfx_fill_rect(g, 16, 126, 6, 6, escalation_color(ESCALATION_NEW));
+        radar_gfx_text(g, 30, 124, "NEW", escalation_color(ESCALATION_NEW));
+        radar_gfx_text(g, 120, 124, "this session", COL_ASH);
+        radar_gfx_fill_rect(g, 16, 140, 6, 6, escalation_color(ESCALATION_RECURRING));
+        radar_gfx_text(g, 30, 138, "RECURRING", escalation_color(ESCALATION_RECURRING));
+        radar_gfx_text(g, 120, 138, "seen again", COL_ASH);
+        radar_gfx_fill_rect(g, 16, 154, 6, 6, escalation_color(ESCALATION_PERSISTENT));
+        radar_gfx_text(g, 30, 152, "PERSISTENT", escalation_color(ESCALATION_PERSISTENT));
+        radar_gfx_text(g, 120, 152, "follower", COL_ASH);
+        row_section(g, 170, "HEALTH");
+        radar_gfx_text(g, 16, 186, "CHANNEL", COL_CHANNEL);
+        radar_gfx_text(g, 104, 186, "healthy", COL_ASH);
+        radar_gfx_text(g, 16, 200, "DEGRADED", COL_WARD);
+        radar_gfx_text(g, 104, 200, "probe wedged", COL_ASH);
+        radar_gfx_text(g, 16, 214, "LOW BATT", COL_WARD);
+        radar_gfx_text(g, 104, 214, "battery low", COL_ASH);
+        radar_gfx_text(g, 16, 228, "SILENT", COL_ASH);
+        radar_gfx_text(g, 104, 228, "not reporting", COL_ASH);
+        radar_gfx_text(g, 8, 298, "TAP: SYSTEM", COL_ASH);
         return;
     }
     draw_header(g, "INFO");

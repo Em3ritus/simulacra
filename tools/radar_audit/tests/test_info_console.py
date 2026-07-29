@@ -36,5 +36,22 @@ class InfoSystemPage(unittest.TestCase):
         self.assertIn("never", texts, f"drew: {texts}")
 
 
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class InfoLegendPage(unittest.TestCase):
+    def test_legend_header_and_sections(self):
+        texts = info(page=1)
+        self.assertIn("LEGEND", texts, f"drew: {texts}")
+        for s in ("POSTURE", "ESCALATION", "HEALTH"):
+            self.assertIn(s, texts, f"missing section {s}; drew: {texts}")
+
+    def test_legend_labels(self):
+        texts = info(page=1)
+        for w in ("CLOAKED", "EXPOSED", "DARK", "HUNTED",
+                  "NEW", "RECURRING", "PERSISTENT",
+                  "CHANNEL", "DEGRADED", "LOW BATT", "SILENT"):
+            self.assertIn(w, texts, f"missing legend label {w}; drew: {texts}")
+        self.assertIn("TAP: SYSTEM", texts, f"footer hint missing; drew: {texts}")
+
+
 if __name__ == "__main__":
     unittest.main()
