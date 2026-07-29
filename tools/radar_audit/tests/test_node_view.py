@@ -58,5 +58,18 @@ class NodeBody(unittest.TestCase):
         j = texts.index("surveillance"); self.assertEqual(texts[j + 1], "1", f"drew: {texts}")
 
 
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class NodeSilent(unittest.TestCase):
+    def test_silent_subline_shows_age(self):
+        texts = node(alive=0, age=45, active=7)
+        self.assertIn("SILENT", texts, f"drew: {texts}")
+        self.assertIn("seen 45s ago", texts, f"drew: {texts}")
+
+    def test_silent_still_shows_last_values(self):
+        # a silent node keeps rendering its last decoy count, not a blank page
+        texts = node(alive=0, age=45, active=7)
+        i = texts.index("decoys"); self.assertEqual(texts[i + 1], "7", f"drew: {texts}")
+
+
 if __name__ == "__main__":
     unittest.main()
