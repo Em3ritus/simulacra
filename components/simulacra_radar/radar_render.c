@@ -284,8 +284,17 @@ static void draw_exposure(radar_gfx_t *g, const exposure_t *e){
         for(int i=0;i<n && y<300;i++){ radar_gfx_text(g, 20, y, ss[i], COL_BONE); y+=18; }
     }
 }
+static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_count, int sel){
+    if (sel < 0 || sel >= node_count) {
+        draw_header(g, "NODE");
+        radar_gfx_text(g, 72, 150, "NODE GONE", COL_ASH);
+        return;
+    }
+    char title[12]; snprintf(title, sizeof title, "NODE N%u", (unsigned)nodes[sel].id);
+    draw_header(g, title);
+}
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
-                       const radar_node_view_t *nodes, int node_count,
+                       const radar_node_view_t *nodes, int node_count, int sel_node,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
                        const exposure_t *expo, uint16_t sweep, uint16_t *band, int band_h, int w, int h,
                        radar_flush_fn flush, void *ctx){
@@ -298,6 +307,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
         else if(view==RADAR_VIEW_CONTROL) draw_control(&g,ctrl);
         else if(view==RADAR_VIEW_INFO) draw_info(&g,st);
         else if(view==RADAR_VIEW_EXPOSURE) draw_exposure(&g,expo);
+        else if(view==RADAR_VIEW_NODE) draw_node(&g,nodes,node_count,sel_node);
         else draw_radar(&g,st,sweep);
         flush(y0, band_h, band, ctx); }
 }

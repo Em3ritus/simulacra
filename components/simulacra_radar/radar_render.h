@@ -22,14 +22,14 @@ typedef enum {
 } radar_posture_t;
 radar_posture_t radar_posture(const radar_wire_status_t *st);   // pure; reads status, no I/O
 // Per-node fleet view for the HOME strip: id + a pointer to that node's last status + liveness.
-typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; } radar_node_view_t;
+typedef struct { uint8_t id; const radar_wire_status_t *st; bool alive; uint32_t age_s; } radar_node_view_t;
 // Banded full-frame render of `view` from `st` (sweep_deg animates the radar). `band` is a
 // scratch buffer of w*band_h uint16; flush() pushes each band to the panel.
 // `lib` is the librarian snapshot for RADAR_VIEW_LIBRARY; NULL on non-librarian displays.
 // `ctrl` is the CONTROL-page state for RADAR_VIEW_CONTROL; NULL on non-Vigil / non-control.
 // `expo` is the exposure-session state for RADAR_VIEW_EXPOSURE; NULL on other views/displays.
 void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
-                       const radar_node_view_t *nodes, int node_count,
+                       const radar_node_view_t *nodes, int node_count, int sel_node,
                        const radar_lib_info_t *lib, const radar_ctrl_info_t *ctrl,
                        const exposure_t *expo, uint16_t sweep_deg,
                        uint16_t *band, int band_h, int w, int h, radar_flush_fn flush, void *ctx);
