@@ -36,6 +36,17 @@ bool fleet_status_at(const fleet_status_t *f, int i, uint8_t *id,
     return false;
 }
 
+uint32_t fleet_status_age_ms(const fleet_status_t *f, int i, uint32_t now_ms)
+{
+    int seen = 0;
+    for (int k = 0; k < FLEET_STATUS_MAX; k++) {
+        if (!f->nodes[k].used) continue;
+        if (seen++ != i) continue;
+        return (uint32_t)(now_ms - f->nodes[k].last_ms);
+    }
+    return 0;
+}
+
 static uint16_t sat_add16(uint16_t a, uint16_t b){ uint32_t s = (uint32_t)a + b; return s > 0xFFFFu ? 0xFFFFu : (uint16_t)s; }
 static uint8_t  sat_add8 (uint8_t  a, uint8_t  b){ uint16_t s = (uint16_t)a + b; return s > 0xFFu ? 0xFFu : (uint8_t)s; }
 

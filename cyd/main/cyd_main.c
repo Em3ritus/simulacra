@@ -156,6 +156,9 @@ static uint8_t node_id_for(const uint8_t *mac){
 }
 static radar_replay_t      s_replay;
 static uint8_t  s_salt[4]; static uint64_t s_ctr;
+static uint8_t s_sel_node;        // NODE view: id of the node being inspected
+static uint8_t s_home_ids[3];     // ids of the (<=3) node cards HOME last rendered, left->right
+static int     s_home_n;          // how many of s_home_ids are valid
 
 #ifdef SIMULACRA_FLEET_PROVISION
 // The ESP-NOW transport key is the provisioned fleet key (rotatable), not a baked constant.
@@ -764,7 +767,11 @@ void app_main(void)
                     RADAR_VIEW_EXPOSURE };                     // EXPOSURE (row 3, col 0)
                 radar_view_t v = RADAR_VIEW_COUNT;             // sentinel: no target
                 if (ty >= 104 && ty < 296) { int idx=((ty-104)/48)*2+(tx>=120?1:0); if (idx<7) v=GRID[idx]; }
-                else if (ty >= 30 && ty < 100)  v = RADAR_VIEW_RADAR;
+                else if (ty >= 30 && ty < 100) {
+                    int card = tx / 80;
+                    if (card < s_home_n) { s_sel_node = s_home_ids[card]; v = RADAR_VIEW_NODE; }
+                    else                 v = RADAR_VIEW_RADAR;   // empty strip area -> aggregate radar
+                }
                 if (v != RADAR_VIEW_COUNT) { radar_ui_select_view(&ui, v, now); send_request(); last_req = now; }
                 else                       radar_ui_note_input(&ui, now);
             } else if (ui.view == RADAR_VIEW_CONTROL) {
@@ -794,6 +801,17 @@ void app_main(void)
             } else if (ui.view == RADAR_VIEW_EXPOSURE) {
                 if (ty < 34) { radar_ui_on_input(&ui, now); }             // "< BACK" strip -> HOME
                 else { expo_sniff_start(&s_expo, now); radar_ui_note_input(&ui, now); }  // (re)scan
+            } else if (ui.view == RADAR_VIEW_NODE) {
+                if (ty < 26) { radar_ui_on_input(&ui, now); }             // "< BACK" strip -> HOME
+                else {
+                    if (s_home_n > 0) {
+                        int cur = 0;
+                        for (int i = 0; i < s_home_n; i++) if (s_home_ids[i] == s_sel_node) { cur = i; break; }
+                        if (tx < 80)        s_sel_node = s_home_ids[(cur - 1 + s_home_n) % s_home_n];
+                        else if (tx > 160)  s_sel_node = s_home_ids[(cur + 1) % s_home_n];
+                    }
+                    radar_ui_note_input(&ui, now); send_request(); last_req = now;
+                }
             } else {
                 radar_ui_on_input(&ui, now); send_request(); last_req = now;
             }
@@ -867,13 +885,24 @@ void app_main(void)
             for (int i = 0; i < fleet_status_count(&s_fleet) && nvc < FLEET_STATUS_MAX; i++) {
                 uint8_t nid; const radar_wire_status_t *nst; bool nal;
                 if (fleet_status_at(&s_fleet, i, &nid, &nst, &nal, now)) {
-                    nv[nvc].id = nid; nv[nvc].st = nst; nv[nvc].alive = nal; nvc++;
+                    nv[nvc].id = nid; nv[nvc].st = nst; nv[nvc].alive = nal;
+                    nv[nvc].age_s = fleet_status_age_ms(&s_fleet, i, now) / 1000;
+                    nvc++;
                 }
             }
             if (nvc == 0) {
                 bool s_fresh = (s_status_ms != 0 && (int32_t)(now - s_status_ms) <= 15000);
-                nv[0].id = 0; nv[0].st = &s_status; nv[0].alive = s_fresh; nvc = 1;
+                nv[0].id = 0; nv[0].st = &s_status; nv[0].alive = s_fresh;
+                nv[0].age_s = s_status_ms ? (now - s_status_ms) / 1000 : 0;
+                nvc = 1;
             }
+            // Record the strip ids HOME will draw (<=3), for the next frame's card-tap mapping.
+            s_home_n = nvc > 3 ? 3 : nvc;
+            for (int i = 0; i < s_home_n; i++) s_home_ids[i] = nv[i].id;
+            // Resolve the selected node -> index into nv[] (-1 if gone) for the NODE view.
+            int sel_idx = -1;
+            if (ui.view == RADAR_VIEW_NODE)
+                for (int i = 0; i < nvc; i++) if (nv[i].id == s_sel_node) { sel_idx = i; break; }
 #ifdef SIMULACRA_FLEET_PROVISION
             // The CONTROL page is static; re-rendering it every frame would re-flush the FLEET
             // bar over it each time and flicker. Redraw it only on change (preset / SEND / entry).
@@ -887,18 +916,19 @@ void app_main(void)
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash){
-                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
-                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                     bool enr = draw_enroll_overlay(band, now);
                     if (enr)                                { /* enrollment banner owns the top */ }
                     else if (ui.view == RADAR_VIEW_CONTROL) draw_fleet_bar(band);
                     else if (ui.view == RADAR_VIEW_HOME)    { /* HOME strip shows liveness itself */ }
                     else if (ui.view == RADAR_VIEW_EXPOSURE) { /* exposure is not fleet data */ }
+                    else if (ui.view == RADAR_VIEW_NODE)    { /* NODE shows its own liveness */ }
                     else                                    draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
@@ -912,13 +942,13 @@ void app_main(void)
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash) {
-                        radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                        radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry
-                    radar_render_view(ui.view, &agg, nv, nvc, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
-                    if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE) draw_freshness_overlay(band, now);
+                    radar_render_view(ui.view, &agg, nv, nvc, sel_idx, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
+                    if (ui.view != RADAR_VIEW_HOME && ui.view != RADAR_VIEW_EXPOSURE && ui.view != RADAR_VIEW_NODE) draw_freshness_overlay(band, now);
                     sweep=(uint16_t)((sweep+12)%360);
                 }
             }

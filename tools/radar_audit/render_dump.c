@@ -4,7 +4,7 @@
 // pixel framebuffer. One full-height band so each draw_* runs exactly once.
 //
 //   render_dump <view> [restless wandering bound active_devices roster target threat_count]
-//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO
+//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node)
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -50,7 +50,42 @@ int main(int argc, char **argv)
             expo_tick(&e, EXPO_BASELINE_MS + EXPO_WATCH_MS + 2);    // -> RESULT
         }
         static uint16_t eband[240 * 320];
-        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
+        radar_render_view(RADAR_VIEW_EXPOSURE, 0, 0, 0, -1, 0, 0, &e, 0, eband, 320, 240, 320, flush_noop, 0);
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--node") == 0) {
+        int a = 2;
+        int sel   = argc > a ? atoi(argv[a]) : 0; a++;
+        int id    = argc > a ? atoi(argv[a]) : 0; a++;
+        int alive = argc > a ? atoi(argv[a]) : 1; a++;
+        unsigned age = argc > a ? (unsigned)strtoul(argv[a], 0, 10) : 0; a++;
+        radar_wire_status_t st; memset(&st, 0, sizeof st);
+        if (argc > a) st.active_devices = (uint16_t)atoi(argv[a]); a++;
+        if (argc > a) st.active_target  = (uint8_t)atoi(argv[a]);  a++;
+        if (argc > a) st.roster_size    = (uint16_t)atoi(argv[a]); a++;
+        if (argc > a) st.form_restless  = (uint8_t)atoi(argv[a]);  a++;
+        if (argc > a) st.form_wandering = (uint8_t)atoi(argv[a]);  a++;
+        if (argc > a) st.form_bound     = (uint8_t)atoi(argv[a]);  a++;
+        if (argc > a) st.pop_ewma       = (uint16_t)atoi(argv[a]); a++;
+        if (argc > a) st.battery_mv     = (uint16_t)atoi(argv[a]); a++;
+        if (argc > a) st.battery_pct    = (uint8_t)atoi(argv[a]); else st.battery_pct = 0xFF; a++;
+        if (argc > a) st.epoch          = (uint16_t)atoi(argv[a]); a++;
+        if (argc > a) st.probes_sent    = (uint32_t)strtoul(argv[a], 0, 10); a++;
+        if (argc > a) st.flags          = (uint8_t)atoi(argv[a]);  a++;
+        if (argc > a) st.uptime_s       = (uint32_t)strtoul(argv[a], 0, 10); a++;
+        int threats = argc > a ? atoi(argv[a]) : 0; a++;
+        int ncam    = argc > a ? atoi(argv[a]) : 0; a++;
+        st.threat_count = (uint8_t)threats;
+        for (int i = 0; i < threats && i < RADAR_MAX_THREATS; i++) st.threats[i].best_rssi = -55;
+        for (int i = 0; i < ncam && i < threats && i < RADAR_MAX_THREATS; i++) {
+            st.threats[i].kind = DETECT_KIND_KNOWN; st.threats[i].category = SIG_CAT_CAMERA;
+            st.threats[i].class_id = SIG_CLASS_FLOCK;
+        }
+        static uint16_t nband[240 * 320];
+        radar_node_view_t nodes[1] = { { (uint8_t)id, &st, alive != 0, age } };
+        radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, 0, 0, NULL, 0,
+                          nband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
@@ -86,11 +121,11 @@ int main(int argc, char **argv)
 
     radar_lib_info_t lib; memset(&lib, 0, sizeof lib);
     radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
-    radar_node_view_t nodes[1] = { { 0, &st, true } };
+    radar_node_view_t nodes[1] = { { 0, &st, true, 0 } };
 
     static uint16_t band[240 * 320];
     // One full-height band: each draw_* runs once, so text is emitted a single time.
-    radar_render_view((radar_view_t)view, &st, nodes, 1, &lib, &ctrl, NULL, 0,
+    radar_render_view((radar_view_t)view, &st, nodes, 1, -1, &lib, &ctrl, NULL, 0,
                       band, 320, 240, 320, flush_noop, NULL);
     return 0;
 }
