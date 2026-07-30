@@ -163,6 +163,7 @@ static uint32_t s_sel_threat;                       // THREAT view: hash of the 
 static uint32_t s_threat_hashes[RADAR_MAX_THREATS]; // hashes of the threats agg last rendered, in order
 static int      s_threat_n;                          // how many of s_threat_hashes are valid
 static uint8_t  s_info_page;      // INFO view: 0 = system console, 1 = legend
+static uint32_t s_clear_arm_ms;   // CONTROL: CLEAR THREATS armed-at (0 = disarmed); 3s confirm window
 #ifdef SIMULACRA_FLOCK_FLOOD
 #define CYD_BUILD_TAG "cyd v2 flood"
 #else
@@ -793,13 +794,25 @@ void app_main(void)
                 } else
 #endif
                 if (ty < 40) {                           // top strip = BACK to HOME (drawn "< BACK")
+                    s_clear_arm_ms = 0;
                     radar_ui_on_input(&ui, now);
+                } else if (ty >= 246) {                  // CLEAR THREATS band (2-tap arm/confirm)
+                    if (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000) {
+                        send_config(CONFIG_CLEAR_THREATS);
+                        radar_ctrl_mark_sent(&ui, now);
+                        s_clear_arm_ms = 0;
+                    } else {
+                        s_clear_arm_ms = now;            // arm
+                    }
                 } else if (ty > 200 && tx > 60 && tx < 180) {   // SEND button
+                    s_clear_arm_ms = 0;
                     send_config(ui.sel_preset);
                     radar_ctrl_mark_sent(&ui, now);
                 } else if (tx < 80) {                    // left zone: prev == cycle-around
+                    s_clear_arm_ms = 0;
                     for (int i = 0; i < RADAR_CTRL_PRESET_COUNT - 1; i++) radar_ctrl_select_next(&ui);
                 } else if (tx > 160) {                   // right zone: next
+                    s_clear_arm_ms = 0;
                     radar_ctrl_select_next(&ui);
                 } else {                                 // center (preset label) = stay put
                     radar_ui_note_input(&ui, now);
@@ -907,7 +920,8 @@ void app_main(void)
             };
             radar_ctrl_info_t ctrl = { .sel_preset = ui.sel_preset,
                 .send_flash = (ui.send_flash_ms && (now - ui.send_flash_ms) < RADAR_CTRL_FLASH_MS),
-                .live_preset = agg.preset };
+                .live_preset = agg.preset,
+                .clear_armed = (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000) };
             // HOME fleet-strip node view: one card per sender, fanned out from the fleet table.
             // Liveness comes from fleet_status_at (stale after FLEET_STATUS_STALE_MS). Until any
             // decoy is heard, show a single SILENT placeholder so HOME is never blank.

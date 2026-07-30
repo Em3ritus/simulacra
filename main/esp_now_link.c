@@ -48,6 +48,7 @@ void espnow_status_from_webui(radar_wire_status_t *out, const webui_status_t *in
 #include "sig_store.h"
 #include "fleet.h"
 #include "config_wire.h"
+#include "detect.h"
 #include "sim_ctrl_key.h"
 #include "settings.h"
 #include "fleet_key.h"
@@ -194,8 +195,12 @@ static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int le
         config_cmd_t cmd;
         if (config_wire_open_signed(pl, plen, nonce12, SIMULACRA_CTRL_PK, &cmd) != 0) return;  // bad sig
         if (cmd.version != CONFIG_WIRE_VER) return;
-        if (sim_settings_apply_preset((sim_preset_t)cmd.preset_id) == 0)
+        if (cmd.preset_id == CONFIG_CLEAR_THREATS) {
+            detect_clear_threats();
+            ESP_LOGW(ETAG, "config: CLEAR THREATS");
+        } else if (sim_settings_apply_preset((sim_preset_t)cmd.preset_id) == 0) {
             ESP_LOGW(ETAG, "config: applied preset %u", (unsigned)cmd.preset_id);
+        }
         return;
     }
 #endif

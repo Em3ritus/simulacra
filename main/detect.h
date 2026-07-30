@@ -51,6 +51,7 @@ typedef struct {
 
 // --- pure core (no radio, no NVS in the decision path) ---
 void            detect_reset(void);                 // clear all RAM state (tests + boot)
+void            detect_clear_threats(void);         // wipe confirmed threats (RAM + persisted NVS blob)
 void            detect_set_enabled(bool en);
 bool            detect_enabled(void);
 detect_result_t detect_observe(uint32_t hash, int8_t rssi, uint16_t vendor, uint16_t epoch);
