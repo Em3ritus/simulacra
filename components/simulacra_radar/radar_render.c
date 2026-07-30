@@ -201,11 +201,16 @@ static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     radar_gfx_text(g, 8, 152, PRESET_DESC[sel % 5], COL_DIM);
     // SEND / SENT / ACTIVE
     bool active = c && (c->live_preset == c->sel_preset) && (c->live_preset <= 4);
-    radar_gfx_fill_rect(g, 60, 210, 120, 40, COL_RING);      // SEND button
-    const char *label = (c && c->send_flash) ? "SENT" : active ? "ACTIVE" : "SEND";
-    uint16_t lc       = (c && c->send_flash) ? COL_OK  : active ? COL_DIM  : COL_FG;
-    radar_gfx_text(g, 96, 224, label, lc);
-    radar_gfx_text(g, 30, 296, "broadcast to all decoys", COL_DIM);
+    radar_gfx_fill_rect(g, 60, 205, 120, 34, COL_RING);      // SEND button
+    const char *slabel = (c && c->send_flash) ? "SENT" : active ? "ACTIVE" : "SEND";
+    uint16_t slc       = (c && c->send_flash) ? COL_OK  : active ? COL_DIM  : COL_FG;
+    radar_gfx_text(g, 96, 216, slabel, slc);
+    // CLEAR THREATS button (2-tap arm/confirm; armed = red CONFIRM)
+    bool armed = c && c->clear_armed;
+    radar_gfx_fill_rect(g, 40, 252, 160, 30, armed ? COL_WARN : COL_CRYPT);
+    const char *clabel = armed ? "CONFIRM CLEAR?" : "CLEAR THREATS";
+    int cx = 120 - (int)strlen(clabel) * 8 / 2;
+    radar_gfx_text(g, cx, 261, clabel, armed ? COL_FG : COL_ASH);
 }
 // ---- necromancer HOME: fleet strip + sigil grid + ticker (theme palette) ----
 static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar_node_view_t *nodes, int nc){
