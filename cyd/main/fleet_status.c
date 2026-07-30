@@ -53,11 +53,14 @@ static uint8_t  sat_add8 (uint8_t  a, uint8_t  b){ uint16_t s = (uint16_t)a + b;
 void fleet_status_aggregate(const fleet_status_t *f, uint32_t now_ms, radar_wire_status_t *out)
 {
     memset(out, 0, sizeof(*out));
+    int agg_preset = -1;   // -1 = no alive node yet
     for (int i = 0; i < FLEET_STATUS_MAX; i++) {
         const fleet_node_t *nd = &f->nodes[i];
         if (!nd->used) continue;
         if ((uint32_t)(now_ms - nd->last_ms) >= FLEET_STATUS_STALE_MS) continue;   // alive nodes only
         const radar_wire_status_t *st = &nd->st;
+        if (agg_preset == -1)              agg_preset = st->preset;   // first alive node
+        else if (agg_preset != st->preset) agg_preset = 0xFE;         // disagreement -> MIXED
         out->active_devices = sat_add16(out->active_devices, st->active_devices);
         out->roster_size    = sat_add16(out->roster_size, st->roster_size);
         out->probes_sent   += st->probes_sent;
@@ -94,4 +97,5 @@ void fleet_status_aggregate(const fleet_status_t *f, uint32_t now_ms, radar_wire
             }
         }
     }
+    out->preset = (agg_preset == -1) ? 0xFF : (uint8_t)agg_preset;
 }

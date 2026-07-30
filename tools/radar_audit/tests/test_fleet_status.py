@@ -28,3 +28,15 @@ class FS(unittest.TestCase):
     def test_aggregate_excludes_stale(self):
         # a stale node contributes nothing to the aggregate
         self.assertEqual(run("up 0 12 wait up 1 8 agg"), ["dev=8 tc=0"])
+    def test_aggregate_preset_all_agree(self):
+        # two alive nodes both preset 4 (MAX) -> fleet preset 4
+        self.assertEqual(run("upp 0 8 4 upp 1 8 4 aggp"), ["preset=4"])
+    def test_aggregate_preset_mixed(self):
+        # differing presets -> MIXED (0xFE = 254)
+        self.assertEqual(run("upp 0 8 4 upp 1 8 2 aggp"), ["preset=254"])
+    def test_aggregate_preset_none_when_empty(self):
+        # no alive nodes -> none (0xFF = 255)
+        self.assertEqual(run("aggp"), ["preset=255"])
+    def test_aggregate_preset_excludes_stale(self):
+        # a stale node's preset does not count; only the alive node (preset 3) remains
+        self.assertEqual(run("upp 0 8 4 wait upp 1 8 3 aggp"), ["preset=3"])

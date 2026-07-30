@@ -5,7 +5,7 @@
 
 #define RADAR_MAGIC0 0x5A
 #define RADAR_MAGIC1 0x4D
-#define RADAR_WIRE_VER 1
+#define RADAR_WIRE_VER 2
 #define RADAR_TYPE_REQUEST 1
 #define RADAR_TYPE_STATUS  2
 #define RADAR_MAX_THREATS  8        // must match DETECT_MAX_THREATS
@@ -32,6 +32,7 @@ typedef struct __attribute__((packed)) {
     uint8_t form_restless, form_wandering, form_bound;  // BLE shade-form counts: RPA/NRPA/static
     uint16_t battery_mv;                                 // cell voltage, 0 = no battery / no gauge
     uint8_t  battery_pct;                                // state-of-charge %, 0xFF = unavailable (ADC backend)
+    uint8_t  preset;                                     // running preset: 0-4 sim_preset_t, 5 CUSTOM, 0xFE MIXED, 0xFF none
 } radar_wire_status_t;
 
 typedef struct { uint8_t salt[4]; uint64_t counter; bool seen; } radar_replay_t;
