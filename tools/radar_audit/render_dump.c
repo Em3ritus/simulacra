@@ -6,7 +6,7 @@
 //   render_dump <view> [restless wandering bound active_devices roster target threat_count]
 //   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node) 9 THREAT (via --threat)
 //   INFO 2-page console via --info <page nodes sigver sigcount linkage libcount libcap cardmb sdok decoys target pop uptime>
-//   CONTROL live-vs-pending via --control <sel live flash>  (live: 0-4 preset, 5 CUSTOM, 254 MIXED, 255 none)
+//   CONTROL live-vs-pending via --control <sel live flash clear_armed>  (live: 0-4 preset, 5 CUSTOM, 254 MIXED, 255 none)
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -159,9 +159,11 @@ int main(int argc, char **argv)
         int sel   = argc > a ? atoi(argv[a]) : 2; a++;
         int live  = argc > a ? atoi(argv[a]) : 0xFF; a++;
         int flash = argc > a ? atoi(argv[a]) : 0; a++;
+        int carm  = argc > a ? atoi(argv[a]) : 0; a++;
         radar_wire_status_t st; memset(&st, 0, sizeof st);
         radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
         ctrl.sel_preset = (uint8_t)sel; ctrl.live_preset = (uint8_t)live; ctrl.send_flash = flash != 0;
+        ctrl.clear_armed = carm != 0;
         static uint16_t cband[240 * 320];
         radar_render_view(RADAR_VIEW_CONTROL, &st, 0, 0, -1, -1, 0, &ctrl, NULL, NULL, 0,
                           cband, 320, 240, 320, flush_noop, 0);

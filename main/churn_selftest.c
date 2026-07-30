@@ -1464,6 +1464,21 @@ static void test_config_wire(void)
 
     uint8_t nonce2[12]; memcpy(nonce2, nonce, 12); nonce2[0] ^= 0x01;
     ST_CHECK(config_wire_open_signed(pl, n, nonce2, pk, &got) != 0, "nonce mismatch fails verify");
+
+    // Clear-threats sentinel rides the signed config path intact.
+    config_cmd_t clr = { .version = CONFIG_WIRE_VER, .preset_id = CONFIG_CLEAR_THREATS };
+    uint8_t cpl[CONFIG_WIRE_PAYLOAD_LEN];
+    ST_CHECK(config_wire_pack_signed(cpl, sizeof cpl, &clr, nonce, sk) == CONFIG_WIRE_PAYLOAD_LEN, "pack clear sentinel");
+    config_cmd_t cgot;
+    ST_CHECK(config_wire_open_signed(cpl, sizeof cpl, nonce, pk, &cgot) == 0, "open clear sentinel");
+    ST_CHECK(cgot.preset_id == CONFIG_CLEAR_THREATS, "clear sentinel carried through signed path");
+
+    // The sentinel action wipes the threat table (RAM).
+    detect_reset();
+    detect_note_known(0xC0FFEE, -50, 3, 1, 90, 1);      // record a known (Flock) threat
+    ST_CHECK(detect_threat_count() == 1, "known threat recorded");
+    detect_clear_threats();
+    ST_CHECK(detect_threat_count() == 0, "detect_clear_threats empties the table");
 }
 
 static void test_enroll_wire(void)

@@ -5,6 +5,7 @@
 #define RADAR_TYPE_CONFIG 7          // Vigil -> all decoys: signed settings preset
 #define CONFIG_WIRE_VER   1
 #define CONFIG_SIG_LEN    64
+#define CONFIG_CLEAR_THREATS 0xFF    // preset_id sentinel: wipe the decoy threat table (not a preset)
 
 typedef struct __attribute__((packed)) {
     uint8_t version;                 // CONFIG_WIRE_VER

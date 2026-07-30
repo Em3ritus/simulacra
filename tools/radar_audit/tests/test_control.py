@@ -4,8 +4,8 @@ HERE = os.path.dirname(__file__); TOOL = os.path.dirname(HERE)
 EXE = os.path.join(TOOL, "render_dump.exe" if os.name == "nt" else "render_dump")
 
 
-def control(sel=2, live=255, flash=0):
-    args = [EXE, "--control", sel, live, flash]
+def control(sel=2, live=255, flash=0, clear_armed=0):
+    args = [EXE, "--control", sel, live, flash, clear_armed]
     out = subprocess.check_output([str(x) for x in args], text=True)
     return [ln.split(" ", 3)[3] for ln in out.splitlines() if ln.startswith("TXT ")]
 
@@ -36,6 +36,20 @@ class ControlLivePending(unittest.TestCase):
     def test_none_live(self):
         texts = control(sel=2, live=255)
         self.assertNotIn("ACTIVE", texts, f"none must not be ACTIVE; drew: {texts}")
+
+
+@unittest.skipUnless(os.path.exists(EXE), "render_dump not built")
+class ControlClearThreats(unittest.TestCase):
+    def test_clear_button_present(self):
+        self.assertTrue(any("CLEAR THREATS" in t for t in control()),
+                        "CLEAR THREATS button should render")
+
+    def test_clear_confirm_when_armed(self):
+        texts = control(clear_armed=1)
+        self.assertTrue(any("CONFIRM CLEAR?" in t for t in texts),
+                        "armed CLEAR should read CONFIRM CLEAR?")
+        self.assertFalse(any("CLEAR THREATS" == t for t in texts),
+                         "armed CLEAR should not also show the un-armed label")
 
 
 if __name__ == "__main__":
