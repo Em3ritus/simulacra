@@ -86,13 +86,17 @@ Roles are selected at build time so one firmware tree serves every board.
   Law-3 gated), synced across the fleet and persisted to an **encrypted-at-rest** SD library on Vigil.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
 - **Signed fleet control:** Vigil pushes Ed25519-signed behaviour presets (PAUSE / STEALTH /
-  NORMAL / DENSE / MAX) to every decoy over ESP-NOW.
+  NORMAL / DENSE / MAX) to every decoy over ESP-NOW — and the console shows which preset the fleet
+  is **actually running** (live vs. pending), plus a signed one-tap **clear-threats** command that
+  wipes every decoy's stale detection history from the panel.
 - **On-air fleet enrollment (ECDH):** decoys ship with no shared transport key and enroll on-air via
   a mutually-authenticated 3-message handshake, so **capturing a decoy does not compromise the fleet.**
 - **Vigil console:** an at-a-glance **protection posture** — one honest word for your current state
   (`CLOAKED` / `EXPOSED` when there's no crowd to hide in / `HUNTED` when a follower is confirmed /
   `DARK`) — plus a live radar/threat display, grouped status pages, a per-node fleet roster, and
-  enroll/revoke control for fleet members.
+  enroll/revoke control for fleet members. Tap in for depth: a **per-node telemetry console**, a
+  **per-threat detail card** (device class, confidence, vendor, persistence), a two-page **system
+  console + colour legend**, and signed fleet control — all from the touch panel, no laptop.
 - **Fleet health at a glance:** decoys report TX self-health and battery state over the link, so
   Vigil surfaces a `DEGRADED` or `LOW BATT` node on its roster before it goes quiet in the field.
 
@@ -194,6 +198,13 @@ Each tool has its own README with build and run steps.
 
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **Vigil console, fully fleshed out.** The touch dashboard became a real operator console: tap a
+  node card for a **per-node telemetry page**; tap a follower for a **per-threat detail card**
+  surfacing the fields the decoys already report (device class, match confidence, vendor company-id,
+  epochs, first/last-seen span); a two-page **INFO** system/fleet console with a colour/posture
+  **legend**; **live-vs-pending preset** state (each decoy now reports the preset it is *actually*
+  running, so the console flags a `MIXED` fleet); and a signed, two-tap **CLEAR THREATS** control
+  that wipes the fleet's detection history from the panel.
 - **Browser web-flasher — [live](https://em3ritus.github.io/simulacra/).** Flash a starter fleet
   from a web page — ESP Web Tools over Web Serial, auto-detecting the board and installing the right
   role. A CI action builds the three firmwares and deploys the flasher to GitHub Pages on every
