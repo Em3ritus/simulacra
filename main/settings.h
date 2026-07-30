@@ -33,6 +33,10 @@ int  sim_settings_apply_preset(sim_preset_t p);
 void sim_settings_init(void);
 // Snapshot the current in-RAM settings.
 void sim_settings_get(sim_settings_t *out);
+// Pure: which preset (against `ceiling`) resolves to exactly *cur? SIM_PRESET_COUNT if none (CUSTOM).
+sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t ceiling);
+// The preset the engine is currently running (inferred from live settings). SIM_PRESET_COUNT = CUSTOM.
+sim_preset_t sim_settings_current_preset(void);
 // Web-UI granular path: clamp, apply, and persist an explicit settings struct.
 void sim_settings_set(const sim_settings_t *s);
 // Current pause state (convenience for the web UI toggle; avoids exposing the struct).
