@@ -15,6 +15,10 @@ int main(int argc,char**argv){
             printf("dev=%u tc=%u", a.active_devices, a.threat_count);
             for(uint8_t k=0;k<a.threat_count;k++) printf(" %08lx@%d",(unsigned long)a.threats[k].hash,a.threats[k].best_rssi);
             printf("\n"); }
+        else if(!strcmp(argv[i],"upp")){ uint8_t id=atoi(argv[++i]); radar_wire_status_t s; memset(&s,0,sizeof s);
+            s.active_devices=atoi(argv[++i]); s.preset=(uint8_t)atoi(argv[++i]); fleet_status_upsert(&f,id,&s,t); }
+        else if(!strcmp(argv[i],"aggp")){ radar_wire_status_t a; fleet_status_aggregate(&f,t,&a);
+            printf("preset=%u\n",(unsigned)a.preset); }
         else if(!strcmp(argv[i],"wait")){ t += FLEET_STATUS_STALE_MS + 1; }
         else if(!strcmp(argv[i],"count")) printf("%d\n", fleet_status_count(&f));
         else if(!strcmp(argv[i],"at0")){ uint8_t id; const radar_wire_status_t*st; bool a;

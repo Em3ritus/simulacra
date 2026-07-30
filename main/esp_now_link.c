@@ -230,6 +230,7 @@ static void respond_once(void)
     const uint8_t *k = fleet_key_get(); if (!k) return;
     webui_status_t w; webui_gather_status(&w);
     radar_wire_status_t r; espnow_status_from_webui(&r, &w);
+    r.preset = (uint8_t)sim_settings_current_preset();
     uint8_t frame[RADAR_FRAME_MAX]; size_t flen;
     if (radar_wire_seal(frame, &flen, RADAR_TYPE_STATUS, (uint8_t*)&r, sizeof r,
                         k, s_salt, ++s_counter) != 0) return;

@@ -1427,6 +1427,18 @@ static void test_settings_apply(void)
     sim_settings_t g; sim_settings_get(&g);
     ST_CHECK(g.paused, "get reflects last applied (PAUSE)");
 
+    // Preset inference (wire-v2 live-preset reporting): apply -> report the same preset.
+    sim_settings_apply_preset(SIM_PRESET_MAX);
+    ST_CHECK(sim_settings_current_preset() == SIM_PRESET_MAX, "current_preset reports MAX after apply");
+    sim_settings_apply_preset(SIM_PRESET_STEALTH);
+    ST_CHECK(sim_settings_current_preset() == SIM_PRESET_STEALTH, "current_preset reports STEALTH after apply");
+    {
+        sim_settings_t custom; sim_settings_get(&custom);
+        custom.dwell_min_ms += 12345;                 // a value no preset resolves to
+        sim_settings_set(&custom);
+        ST_CHECK(sim_settings_current_preset() == SIM_PRESET_COUNT, "granular settings report CUSTOM");
+    }
+
     // Restore NORMAL so subsequent tests run with defaults.
     sim_settings_apply_preset(SIM_PRESET_NORMAL);
 }

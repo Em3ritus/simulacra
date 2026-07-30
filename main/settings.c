@@ -87,6 +87,25 @@ int sim_settings_apply_preset(sim_preset_t p)
 
 void sim_settings_get(sim_settings_t *out) { *out = s_cur; }
 
+sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t ceiling)
+{
+    for (sim_preset_t p = SIM_PRESET_PAUSE; p < SIM_PRESET_COUNT; p++) {
+        sim_settings_t r;
+        if (sim_settings_resolve(p, ceiling, &r) != 0) continue;
+        if (r.active_target == cur->active_target && r.paused == cur->paused &&
+            r.accel == cur->accel &&
+            r.dwell_min_ms == cur->dwell_min_ms && r.dwell_max_ms == cur->dwell_max_ms &&
+            r.cooldown_min_ms == cur->cooldown_min_ms && r.cooldown_max_ms == cur->cooldown_max_ms)
+            return p;
+    }
+    return SIM_PRESET_COUNT;   // CUSTOM
+}
+
+sim_preset_t sim_settings_current_preset(void)
+{
+    return sim_settings_match_preset(&s_cur, CHURN_ACTIVE_SET);
+}
+
 bool sim_settings_get_paused(void) { return s_cur.paused; }
 
 void sim_settings_init(void)

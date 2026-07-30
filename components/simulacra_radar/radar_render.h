@@ -12,7 +12,7 @@ typedef struct {                 // Vigil librarian snapshot for the LIBRARY pag
     uint32_t save_age_s;         // UINT32_MAX = never
     uint32_t save_bytes;         // size of last sealed blob
 } radar_lib_info_t;
-typedef struct { uint8_t sel_preset; bool send_flash; } radar_ctrl_info_t;   // CONTROL page state
+typedef struct { uint8_t sel_preset; bool send_flash; uint8_t live_preset; } radar_ctrl_info_t;   // CONTROL page state
 typedef struct {                 // CYD system/fleet snapshot for the INFO page
     uint8_t  node_count;         // meshing nodes
     uint16_t sig_ver;            // signature-DB version

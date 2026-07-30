@@ -177,17 +177,34 @@ static void draw_library(radar_gfx_t *g, const radar_lib_info_t *lib){
            row_kv(g,y,"last save",v); }
 }
 static const char *CTRL_LABELS[5] = { "PAUSE", "STEALTH", "NORMAL", "DENSE", "MAX" };
+static const char *PRESET_DESC[5] = { "freeze on-air", "min crowd", "balanced", "big crowd", "max crowd" };
+static const char *ctrl_preset_name(uint8_t p){
+    if (p < 5)     return CTRL_LABELS[p];
+    if (p == 5)    return "CUSTOM";
+    if (p == 0xFE) return "MIXED";
+    return "-";                       // 0xFF none
+}
 static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     radar_gfx_text(g, 8, 6, "< BACK", COL_ARCANE);       // top strip taps home
     radar_gfx_text(g, 152, 6, "CONTROL", COL_ASH);
-    uint8_t sel = c ? c->sel_preset : 2;
+    uint8_t sel  = c ? c->sel_preset : 2;
+    uint8_t live = c ? c->live_preset : 0xFF;
+    // LIVE (what the fleet is actually running)
+    radar_gfx_text(g, 20, 56, "LIVE", COL_ASH);
+    radar_gfx_text(g, 96, 56, ctrl_preset_name(live), live == 0xFE ? COL_WARN : COL_FG);
+    // PENDING (what SEND will apply)
+    radar_gfx_text(g, 20, 96, "PENDING", COL_ASH);
     radar_gfx_text(g, 20, 120, "<", COL_DIM);
     radar_gfx_text(g, 200, 120, ">", COL_DIM);
     char box[16]; snprintf(box, sizeof box, "[ %s ]", CTRL_LABELS[sel % 5]);
     radar_gfx_text(g, 70, 120, box, COL_FG);
+    radar_gfx_text(g, 8, 152, PRESET_DESC[sel % 5], COL_DIM);
+    // SEND / SENT / ACTIVE
+    bool active = c && (c->live_preset == c->sel_preset) && (c->live_preset <= 4);
     radar_gfx_fill_rect(g, 60, 210, 120, 40, COL_RING);      // SEND button
-    radar_gfx_text(g, 96, 224, c && c->send_flash ? "SENT" : "SEND",
-                   c && c->send_flash ? COL_OK : COL_FG);
+    const char *label = (c && c->send_flash) ? "SENT" : active ? "ACTIVE" : "SEND";
+    uint16_t lc       = (c && c->send_flash) ? COL_OK  : active ? COL_DIM  : COL_FG;
+    radar_gfx_text(g, 96, 224, label, lc);
     radar_gfx_text(g, 30, 296, "broadcast to all decoys", COL_DIM);
 }
 // ---- necromancer HOME: fleet strip + sigil grid + ticker (theme palette) ----

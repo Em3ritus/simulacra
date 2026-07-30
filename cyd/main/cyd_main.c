@@ -906,7 +906,8 @@ void app_main(void)
                 .save_bytes  = s_save_bytes,
             };
             radar_ctrl_info_t ctrl = { .sel_preset = ui.sel_preset,
-                .send_flash = (ui.send_flash_ms && (now - ui.send_flash_ms) < RADAR_CTRL_FLASH_MS) };
+                .send_flash = (ui.send_flash_ms && (now - ui.send_flash_ms) < RADAR_CTRL_FLASH_MS),
+                .live_preset = agg.preset };
             // HOME fleet-strip node view: one card per sender, fanned out from the fleet table.
             // Liveness comes from fleet_status_at (stale after FLEET_STATUS_STALE_MS). Until any
             // decoy is heard, show a single SILENT placeholder so HOME is never blank.
