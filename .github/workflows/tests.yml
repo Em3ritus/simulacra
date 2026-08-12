@@ -25,10 +25,25 @@ jobs:
           done
 
       - name: Run the suites
-        run: python -m unittest discover -s tools -t . -p 'test_*.py' -v
+        # `-s tools -t .` cannot recurse into tools/*/tests/ -- none of tools/, tools/<dir>/, or
+        # tools/<dir>/tests/ are Python packages (no __init__.py, deliberately -- these are
+        # standalone host-test harnesses, not an installable package), and unittest's discover only
+        # descends into directories it can import as packages. That made this step silently discover
+        # and run ZERO of the ~190 tests below on every push since this workflow was created (see git
+        # history for the incident). Enumerate each tool's own tests/ dir directly instead --
+        # exactly the pattern each tool's own run.ps1 already uses for local runs.
+        run: |
+          for d in decoy_audit probe_audit pcap_learn radar_audit; do
+            echo "::group::tools/$d"
+            python -m unittest discover -s tools/$d/tests -p 'test_*.py' -v
+            echo "::endgroup::"
+          done
+          echo "::group::tools/tests"
+          python -m unittest discover -s tools/tests -p 'test_*.py' -v
+          echo "::endgroup::"
 
       - name: Run the web manifest tests
-        run: python -m unittest discover -s web -t . -p 'test_*.py'
+        run: python -m unittest discover -s web -p 'test_*.py'
 
   # The on-target self-test never runs in CI (it needs hardware), but it must keep COMPILING as the
   # APIs it asserts against move -- otherwise it silently rots and stops being flashable when needed.
