@@ -14,9 +14,14 @@
 //     [-DSIMULACRA_VBAT_LOW_MV=3400]     (flag LOW below this cell mV)
 //     e.g. Waveshare C5: GPIO=6 DIV=3 (200k/100k divider -> Vbat = Vadc*3).
 //
-// Neither defined -> every call is a no-op returning "absent".
+// Neither defined -> the backend DEFAULTS BY TARGET in vbat.c (C5 -> ADC on GPIO6, C6 ->
+// MAX17048 on 4/7), because the sense hardware is a property of the board, not of the build
+// invocation. Nothing passed these flags for a long time, so every image shipped with the sense
+// path compiled out and the console reported every node as USB-powered. An unknown target still
+// compiles to no-ops returning "absent".
 
 void vbat_init(void);        // set up the backend once at boot; no-op if disabled or none present
+const char *vbat_backend(void);  // "max17048" | "adc" | "none" -- which backend was COMPILED IN
 bool vbat_present(void);     // true iff a battery / gauge is readable
 int  vbat_mv(void);          // fresh cell voltage in mV, or -1 if absent
 int  vbat_soc_pct(void);     // fresh state-of-charge %, or -1 if unavailable (ADC backend has none)

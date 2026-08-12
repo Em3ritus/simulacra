@@ -12,6 +12,7 @@ typedef struct {
     bool     wifi_config_mode;   // true while the config AP is up
     bool     tx_degraded;        // probe TX wedged (alive but not injecting) -> health flag bit2
     bool     battery_low;        // battery below threshold (early brownout warning) -> flag bit3
+    bool     model_saturated;    // observe dedup table filled: density under-reported -> flag bit4
     uint16_t battery_mv;         // cell voltage, 0 = no battery / no gauge
     uint8_t  battery_pct;        // state-of-charge %, 0xFF = unavailable (ADC backend has no SoC)
     uint16_t active_devices;     // churn_active_count()

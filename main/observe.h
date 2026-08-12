@@ -19,6 +19,10 @@ void     observe_ingest(rf_model_t *m, const uint8_t mac[6], uint32_t now_ms,
 void     observe_end_sweep(rf_model_t *m, uint32_t window_ms);
 // Distinct hashes currently held in the ephemeral table (for tests/heartbeat).
 size_t   observe_ephemeral_count(void);
+// True if the last closed sweep filled the 256-entry dedup table: the distinct-device count (and
+// therefore pop_ewma) is a floor, not a measurement. Surfaced so a dense room reads as "model
+// saturated" rather than as a confidently wrong density.
+bool     observe_saturated(void);
 
 // --- live radio path (implemented in Task 4) ---
 void     observe_start(uint32_t boot_salt);   // load model from NVS, start passive scan
@@ -31,7 +35,13 @@ void     observe_heartbeat(void);
 void              observe_reprofile_init(uint32_t boot_salt);
 // Run ONE bounded scan window (blocks the caller for duration_ms), ingesting reports while
 // ext-adv keeps running, then close the sweep and fold into the model.
-void              observe_window(uint32_t duration_ms);
+// Re-profile window, non-blocking. Call observe_window_begin() once, then observe_window_poll()
+// every tick until it returns true (the model has been updated and the sweep closed). The caller's
+// task keeps running throughout — this used to block it for the full 15 s duration, stalling
+// churn, the detector drain and probe bursts along with it.
+void              observe_window_begin(uint32_t duration_ms);
+bool              observe_window_poll(uint32_t now_ms);
+bool              observe_window_active(void);
 // The current persistent model (RAM).
 const rf_model_t *observe_model(void);
 

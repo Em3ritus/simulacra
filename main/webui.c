@@ -18,6 +18,8 @@
 #include "probe.h"
 #include "vbat.h"
 #include "coexist.h"
+#include "observe.h"
+#include "config_wire.h"   // CONFIG_CLEAR_THREATS sentinel
 #include "rf_model.h"
 #include "ble_devices.h"
 
@@ -76,8 +78,16 @@ void webui_gather_status(webui_status_t *out)
     out->probes_sent     = probe_total_sent();
     out->tx_degraded     = !probe_tx_healthy();
     out->battery_low     = vbat_low();
-    int bmv = vbat_mv();  out->battery_mv  = (bmv > 0)  ? (uint16_t)bmv : 0;
-    int bpc = vbat_soc_pct(); out->battery_pct = (bpc >= 0) ? (uint8_t)bpc : 0xFF;
+    out->model_saturated = observe_saturated();   // density is a floor, not a count
+    // Gate on vbat_present(), not on mv > 0. The ADC backend returns whatever the divider reads
+    // even with no cell fitted (a floating node, or the charger rail), so `mv > 0` would report a
+    // bogus voltage as a battery; vbat_present() applies the VBAT_PRESENT_MV threshold that decides
+    // whether a cell is actually there. battery_mv == 0 is the wire's "no battery" signal.
+    bool bpresent = vbat_present();
+    int bmv = bpresent ? vbat_mv() : -1;
+    out->battery_mv  = (bmv > 0) ? (uint16_t)bmv : 0;
+    int bpc = bpresent ? vbat_soc_pct() : -1;
+    out->battery_pct = (bpc >= 0) ? (uint8_t)bpc : 0xFF;
     out->epoch           = coexist_current_epoch();
     out->active_target   = churn_active_target();
     rf_model_t m;
@@ -114,23 +124,59 @@ static esp_err_t h_status(httpd_req_t *r)
     return httpd_resp_send(r, buf, n);
 }
 
-static esp_err_t h_control(httpd_req_t *r)   // body is a tiny {"action":"..."} — substring match is enough
+// Extract the "action" value from a tiny {"action":"..."} body into out. Returns false if the key
+// is absent or the value doesn't terminate. Replaces substring matching on the raw body, where
+// "preset_normal_oops" matched preset_normal and the else-if order silently decided ties.
+static bool action_of(const char *body, char *out, size_t cap)
+{
+    const char *k = strstr(body, "\"action\"");
+    if (!k) return false;
+    const char *q = strchr(k + 8, '"');            // opening quote of the value
+    if (!q) return false;
+    const char *e = strchr(++q, '"');              // closing quote
+    if (!e || (size_t)(e - q) >= cap) return false;
+    memcpy(out, q, (size_t)(e - q));
+    out[e - q] = '\0';
+    return true;
+}
+
+static esp_err_t h_control(httpd_req_t *r)
 {
     char body[128];
-    int len = r->content_len < sizeof(body)-1 ? r->content_len : (int)sizeof(body)-1;
-    int got = httpd_req_recv(r, body, len); if (got <= 0) return httpd_resp_send_500(r);
-    body[got] = '\0';
-    if      (strstr(body, "detect_toggle")) detect_set_enabled(!detect_enabled());
-    else if (strstr(body, "churn_toggle"))  sim_settings_apply_preset(
-                                                sim_settings_get_paused() ? SIM_PRESET_NORMAL : SIM_PRESET_PAUSE);
-    else if (strstr(body, "clear_threats")) detect_clear_threats();
-    else if (strstr(body, "preset_stealth")) sim_settings_apply_preset(SIM_PRESET_STEALTH);
-    else if (strstr(body, "preset_normal"))  sim_settings_apply_preset(SIM_PRESET_NORMAL);
-    else if (strstr(body, "preset_dense"))   sim_settings_apply_preset(SIM_PRESET_DENSE);
-    else if (strstr(body, "preset_max"))     sim_settings_apply_preset(SIM_PRESET_MAX);
-    else if (strstr(body, "preset_pause"))   sim_settings_apply_preset(SIM_PRESET_PAUSE);
-    else if (strstr(body, "done"))          s_window_done = true;
-    else if (strstr(body, "reboot"))        { httpd_resp_sendstr(r, "{\"ok\":1}"); esp_restart(); }
+    int len = r->content_len < sizeof(body)-1 ? (int)r->content_len : (int)sizeof(body)-1;
+    int off = 0;
+    while (off < len) {                            // httpd_req_recv may return a short read
+        int got = httpd_req_recv(r, body + off, len - off);
+        if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (got <= 0) return httpd_resp_send_500(r);
+        off += got;
+    }
+    body[off] = '\0';
+
+    char act[32];
+    if (!action_of(body, act, sizeof act)) return httpd_resp_send_500(r);
+
+    static const struct { const char *name; sim_preset_t preset; } PRESETS[] = {
+        { "preset_stealth", SIM_PRESET_STEALTH }, { "preset_normal", SIM_PRESET_NORMAL },
+        { "preset_dense",   SIM_PRESET_DENSE   }, { "preset_max",    SIM_PRESET_MAX    },
+        { "preset_pause",   SIM_PRESET_PAUSE   },
+    };
+    // Requests are queued for the coexist tick, never applied on the HTTP task: presets resize the
+    // BLE population and clear_threats memsets the detector table, both of which coexist_task is
+    // concurrently reading.
+    for (size_t i = 0; i < sizeof PRESETS / sizeof PRESETS[0]; i++)
+        if (strcmp(act, PRESETS[i].name) == 0) {
+            coexist_request_preset((uint8_t)PRESETS[i].preset);
+            return httpd_resp_sendstr(r, "{\"ok\":1}");
+        }
+
+    if      (strcmp(act, "detect_toggle") == 0) detect_set_enabled(!detect_enabled());
+    else if (strcmp(act, "churn_toggle")  == 0) coexist_request_preset((uint8_t)(
+                                                    sim_settings_get_paused() ? SIM_PRESET_NORMAL : SIM_PRESET_PAUSE));
+    else if (strcmp(act, "clear_threats") == 0) coexist_request_preset(CONFIG_CLEAR_THREATS);
+    else if (strcmp(act, "done")          == 0) s_window_done = true;
+    else if (strcmp(act, "reboot")        == 0) { httpd_resp_sendstr(r, "{\"ok\":1}"); esp_restart(); }
+    else return httpd_resp_send_404(r);            // unknown action: say so, don't silently succeed
     return httpd_resp_sendstr(r, "{\"ok\":1}");
 }
 

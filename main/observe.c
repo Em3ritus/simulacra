@@ -27,7 +27,8 @@ typedef struct { uint32_t hash; uint32_t first_ms; uint32_t last_ms; bool used; 
 static obs_entry_t s_tbl[OBS_TABLE_CAP];
 static uint32_t    s_salt;
 static uint32_t    s_arrivals;     // new distinct hashes this window
-static bool        s_saturated;
+static bool        s_saturated;      // dedup table filled this sweep (distinct count truncated)
+static bool        s_last_saturated; // latched at sweep close, for logging/telemetry
 
 void observe_reset_ephemeral(uint32_t boot_salt)
 {
@@ -70,6 +71,11 @@ void observe_end_sweep(rf_model_t *m, uint32_t window_ms)
 {
     uint32_t distinct = 0;
     for (size_t i = 0; i < OBS_TABLE_CAP; i++) if (s_tbl[i].used) distinct++;
+    // Latch saturation before the wipe. A saturated sweep means `distinct` is a floor, not a count:
+    // pop_ewma under-reports, and it feeds generate_active_target and the whole population match.
+    // GEN_CEILING caps the target well below 256 today, so nothing downstream is wrong yet — but
+    // the number must not be reported as fact when the table truncated it.
+    s_last_saturated = s_saturated;
     rf_model_end_sweep(m, distinct, window_ms, s_arrivals);
     rf_model_decay(m);                     // rolling window: fade old obs so the model tracks NOW
     memset(s_tbl, 0, sizeof(s_tbl));       // wipe ephemeral identifiers
@@ -83,6 +89,8 @@ void observe_end_sweep(rf_model_t *m, uint32_t window_ms)
     if (++s_learn_persist >= 8) { s_learn_persist = 0; learn_save_nvs(); }
 #endif
 }
+
+bool observe_saturated(void) { return s_last_saturated; }
 
 size_t observe_ephemeral_count(void)
 {
@@ -103,7 +111,7 @@ static rf_model_t s_model;
 static uint32_t   s_sweep_start_ms;
 static uint32_t   s_persist_ctr;
 static int        s_scan_rc = -1;          // last ble_gap_disc() result (liveness/diag)
-static bool       s_window_mode;           // true while observe_window() owns the scan
+static bool       s_window_mode;           // true while a re-profile window owns the scan
 static observe_report_cb_t s_report_cb;    // M9: raw-report tap (fired before the MAC is hashed)
 
 static void observe_maybe_close_sweep(uint32_t now)
@@ -111,9 +119,10 @@ static void observe_maybe_close_sweep(uint32_t now)
     if (now - s_sweep_start_ms < OBS_SWEEP_MS) return;
     observe_end_sweep(&s_model, now - s_sweep_start_ms);
     s_sweep_start_ms = now;
-    ESP_LOGW(TAG, "[sweep %u] pop=%u arr/min=%u obs=%u",
+    ESP_LOGW(TAG, "[sweep %u] pop=%u arr/min=%u obs=%u%s",
              (unsigned)s_model.sweeps, (unsigned)(s_model.pop_ewma + 0.5f),
-             (unsigned)(s_model.arrival_per_min + 0.5f), (unsigned)s_model.total_obs);
+             (unsigned)(s_model.arrival_per_min + 0.5f), (unsigned)s_model.total_obs,
+             observe_saturated() ? " SATURATED (density under-reported)" : "");
     if (++s_persist_ctr >= OBS_PERSIST_EVERY) {
         s_persist_ctr = 0;
         rf_model_save_nvs(&s_model);
@@ -227,22 +236,52 @@ void observe_reprofile_init(uint32_t boot_salt)
 #endif
 }
 
-void observe_window(uint32_t duration_ms)
+// Re-profile window as a two-phase, NON-BLOCKING operation.
+//
+// This used to be one call that vTaskDelay'd for the whole 15 s duration. It runs on the coexist
+// task, which also owns churn_tick, the detector drain, the surveillance-OUI drain, probe bursts
+// and the ESP-NOW channel park -- so every 5 min (Shade) or 10 min (Ward) all of those stalled for
+// 15 s. Ext-adv keeps running in hardware so the decoy stayed on air, but detection latency spiked
+// and a confirmed threat could wait 15 s for its NVS persist. Begin/poll lets the tick keep
+// running while the scan is open.
+#define WINDOW_DRAIN_MS 50      // let queued reports land on the host task before closing the sweep
+
+static uint32_t s_window_end_ms;      // scan stops here
+static bool     s_window_closing;     // scan stopped; waiting out the drain
+
+void observe_window_begin(uint32_t duration_ms)
 {
+    if (s_window_mode) return;                               // already open
     observe_reset_ephemeral(s_salt);                         // fresh dedup table, keep the boot salt
     s_window_mode    = true;
+    s_window_closing = false;
     s_sweep_start_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    s_window_end_ms  = s_sweep_start_ms + duration_ms;
     observe_start_scan();                                    // EXT_DISC reports -> observe_gap_event
-    vTaskDelay(pdMS_TO_TICKS(duration_ms));
-    int cancel_rc = ble_gap_disc_cancel();
-    if (cancel_rc != 0) ESP_LOGW(TAG, "observe_window: disc_cancel rc=%d", cancel_rc);
-    vTaskDelay(pdMS_TO_TICKS(50));     // let queued reports drain on the host task before closing the sweep
-    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-    observe_end_sweep(&s_model, now - s_sweep_start_ms);
-    s_window_mode = false;
-    ESP_LOGW(TAG, "[reprofile sweep %u] pop=%u arr/min=%u obs=%u",
-             (unsigned)s_model.sweeps, (unsigned)(s_model.pop_ewma + 0.5f),
-             (unsigned)(s_model.arrival_per_min + 0.5f), (unsigned)s_model.total_obs);
 }
+
+bool observe_window_poll(uint32_t now_ms)
+{
+    if (!s_window_mode) return false;
+    if (!s_window_closing) {
+        if ((int32_t)(now_ms - s_window_end_ms) < 0) return false;    // still scanning
+        int cancel_rc = ble_gap_disc_cancel();
+        if (cancel_rc != 0) ESP_LOGW(TAG, "observe_window: disc_cancel rc=%d", cancel_rc);
+        s_window_closing = true;
+        s_window_end_ms  = now_ms + WINDOW_DRAIN_MS;
+        return false;
+    }
+    if ((int32_t)(now_ms - s_window_end_ms) < 0) return false;        // draining queued reports
+    observe_end_sweep(&s_model, now_ms - s_sweep_start_ms);
+    s_window_mode    = false;
+    s_window_closing = false;
+    ESP_LOGW(TAG, "[reprofile sweep %u] pop=%u arr/min=%u obs=%u%s",
+             (unsigned)s_model.sweeps, (unsigned)(s_model.pop_ewma + 0.5f),
+             (unsigned)(s_model.arrival_per_min + 0.5f), (unsigned)s_model.total_obs,
+             observe_saturated() ? " SATURATED (density under-reported)" : "");
+    return true;
+}
+
+bool observe_window_active(void) { return s_window_mode; }
 
 const rf_model_t *observe_model(void) { return &s_model; }

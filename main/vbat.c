@@ -1,4 +1,31 @@
 #include "vbat.h"
+#include "sdkconfig.h"
+
+/* ---- Backend selection ------------------------------------------------------------------------
+ * The sense hardware is a property of the BOARD, so it defaults per target instead of relying on
+ * the operator to remember two -D flags on every build. Previously nothing passed them -- not
+ * build_flash_read.ps1, not the CI flasher workflow -- so every shipped image compiled the
+ * "disabled" stub below, vbat_mv() always returned -1, and the CYD rendered "USB" for every node
+ * no matter what it was actually running on. The battery was never unread; it was never sensed.
+ *
+ * Wiring is from the board schematics (private/FLEET-SETUP.md §9). Explicit -D flags still win, so
+ * a differently-wired board can override without touching this file, and an unknown target still
+ * compiles out to nothing.
+ */
+#if !defined(SIMULACRA_VBAT_MAX17048) && !defined(SIMULACRA_VBAT_ADC)
+  #if defined(CONFIG_IDF_TARGET_ESP32C5)
+    /* Waveshare ESP32-C5-WIFI6-KIT: no gauge; BAT--200k--+--100k--GND divider, node on GPIO6. */
+    #define SIMULACRA_VBAT_ADC       1
+    #define SIMULACRA_VBAT_ADC_GPIO  6
+  #elif defined(CONFIG_IDF_TARGET_ESP32C6)
+    /* SparkFun Thing Plus C6: MAX17048 fuel gauge at 0x36 on SDA=GPIO4 / SCL=GPIO7. A C6 board
+     * without this gauge must override with -DSIMULACRA_VBAT_ADC=1 (or disable it explicitly);
+     * probing an absent device is harmless but will just report "no cell". */
+    #define SIMULACRA_VBAT_MAX17048  1
+    #define SIMULACRA_VBAT_SDA       4
+    #define SIMULACRA_VBAT_SCL       7
+  #endif
+#endif
 
 /* ---- Backend 1: MAX17048/MAX17049 fuel gauge over I2C (SparkFun Thing Plus C6) ---------------- */
 #if defined(SIMULACRA_VBAT_MAX17048)
@@ -61,6 +88,7 @@ static void ensure_present(void)
     if (rd_reg(REG_VCELL, &p) == 0) { s_present = true; sample();
         ESP_LOGW(VTAG, "MAX17048 detected: %d mV, %d%%", s_mv, s_soc); }
 }
+const char *vbat_backend(void) { return "max17048"; }
 bool vbat_present(void) { ensure_present(); return s_present; }
 int  vbat_mv(void)      { ensure_present(); if (s_present) sample(); return s_present ? s_mv  : -1; }
 int  vbat_soc_pct(void) { ensure_present(); if (s_present) sample(); return s_present ? s_soc : -1; }
@@ -114,6 +142,7 @@ int vbat_mv(void)
     else mv = raw * 3300 / 4095;                     // crude fallback: 12-bit, ~3.3V ref
     return mv * SIMULACRA_VBAT_ADC_DIV;
 }
+const char *vbat_backend(void) { return "adc"; }
 int  vbat_soc_pct(void) { return -1; }               // an ADC divider gives voltage, not SoC
 bool vbat_present(void) { return vbat_mv() > VBAT_PRESENT_MV; }
 bool vbat_low(void)     { int mv = vbat_mv(); return mv > VBAT_PRESENT_MV && mv < SIMULACRA_VBAT_LOW_MV; }
@@ -121,6 +150,7 @@ bool vbat_low(void)     { int mv = vbat_mv(); return mv > VBAT_PRESENT_MV && mv 
 /* ---- Disabled: no battery hardware, zero cost --------------------------------------------------- */
 #else
 void vbat_init(void)    {}
+const char *vbat_backend(void) { return "none"; }
 bool vbat_present(void) { return false; }
 int  vbat_mv(void)      { return -1; }
 int  vbat_soc_pct(void) { return -1; }
