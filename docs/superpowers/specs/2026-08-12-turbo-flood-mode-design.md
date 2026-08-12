@@ -2,8 +2,9 @@
 
 **Date:** 2026-08-12
 **Status:** design (approved, pre-plan)
-**Area:** `main/settings.{c,h}`, `main/coexist.c`, `main/ble_devices.{c,h}`, `main/probe_agents.{c,h}`,
-`main/roster.{c,h}`, CYD CONTROL page (`cyd/main/`, `components/simulacra_radar/`), `main/churn_selftest.c`.
+**Area:** `main/settings.{c,h}`, `main/coexist.{c,h}`, `main/churn.{c,h}`, `main/ble_devices.{c,h}`,
+`main/probe_agents.{c,h}`, CYD CONTROL page (`cyd/main/`, `components/simulacra_radar/`),
+`main/churn_selftest.c`. (`main/roster.{c,h}` needs no changes — see Architecture.)
 
 ## Goal
 
@@ -93,15 +94,20 @@ attack surface:
 
 - `ble_devices_set_count(BLE_DEVICES_MAX, now)` — every slot filled, independent of any fleet-share
   or room-density estimate.
-- Identity draw bypasses `generate_roster`'s model-driven vendor sampling entirely (same *shape* of
-  bypass as Flock-flood's `generate_set_flock_flood`, different target): `dev_spawn` draws from
-  `roster_at()` — the existing template pool — rather than fitting to observed data. This is where
-  most of the per-identity CPU cost lives in normal mode; TURBO doesn't pay it, and the pool still
-  yields varied, Law-3-safe payload shapes rather than one repeated shape (unlike Flock-flood, which
-  deliberately converges on one vendor's signature).
-- Rotation interval: a new, much shorter TURBO-specific band (not `RPA_ROT_MIN_MS`/`MAX_MS`, not
-  `PERSONA_RPA_ROT_MIN_MS`/`MAX_MS`). Exact values are an on-hardware tuning question — see Open
-  question.
+- Identity draw is already cheap and needs no bypass: `dev_spawn` always draws from `roster_at()` —
+  the existing template pool — regardless of turbo. The model-driven fitting work
+  (`generate_roster`/`roster_reseed`) only runs from the re-profile path, which TURBO skips entirely
+  (see below), so there is nothing to bypass at the draw site itself — `roster.{c,h}` needs no
+  changes. What TURBO actually overrides is `dev_spawn`'s **lifetime** assignment: instead of the
+  role/atype bands, every fresh spawn gets a short fixed lifetime, so the crowd respawns (fresh
+  address AND fresh payload/behaviour, still drawn from the same varied pool) as fast as the
+  presentation cadence below allows.
+- Presentation cadence, not device lifetime, is the actual bottleneck: the 4 physical BLE adv slots
+  only get re-evaluated once per `CHURN_SLICE_MS` (1000 ms default), round-robin over the
+  population. A device life shorter than that interval is invisible churn — it can respawn several
+  times between the slot's visits and only the identity alive at visit-time is ever broadcast. Both
+  the lifetime band AND this cadence need their own short TURBO-specific values. Exact values for
+  both are an on-hardware tuning question — see Open question.
 
 ### Wi-Fi behavior (turbo active)
 
@@ -133,8 +139,9 @@ every existing preset transition. No lingering flood state.
 |------|----------------|
 | `settings.{c,h}` | `SIM_PRESET_TURBO`, `turbo` field, resolve → true/false per preset |
 | `coexist.{c,h}` | `s_turbo` state, `coexist_set_turbo(bool)`, tick-time override ahead of reprofile/glide |
-| `roster.{c,h}` / `ble_devices.c` | `dev_spawn` bypass path drawing straight from the template pool when turbo is active |
-| `probe_agents.c` | forced `DUTY_ACTIVE` + floored interval when turbo is active |
+| `churn.{c,h}` | `churn_set_slice_ms(uint32_t)` — the real BLE-presentation-rate lever, not device lifetime alone |
+| `ble_devices.{c,h}` | `ble_devices_set_turbo(bool)` — short fixed `dev_spawn` lifetime when turbo is active |
+| `probe_agents.{c,h}` | `probe_agents_set_turbo(bool)` — forced `DUTY_ACTIVE` + floored scan interval + fast MAC rotation |
 | CYD CONTROL | `TURBO` button, two-tap arm/confirm, `RADAR_CTRL_PRESET_COUNT`/`CTRL_LABELS` bump to 6 |
 
 ## Testing
