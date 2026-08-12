@@ -20,6 +20,12 @@ int main(int argc,char**argv){
         else if(!strcmp(argv[i],"aggp")){ radar_wire_status_t a; fleet_status_aggregate(&f,t,&a);
             printf("preset=%u\n",(unsigned)a.preset); }
         else if(!strcmp(argv[i],"wait")){ t += FLEET_STATUS_STALE_MS + 1; }
+        // "back N": rewind the observer clock by N ms WITHOUT touching the records, i.e. records
+        // now carry a timestamp from the future. Reproduces the real firmware ordering where the
+        // UI samples `now` at the top of a frame and the RX drain stamps records later in it.
+        else if(!strcmp(argv[i],"back")){ t -= (uint32_t)strtoul(argv[++i],0,10); }
+        else if(!strcmp(argv[i],"adv")){ t += (uint32_t)strtoul(argv[++i],0,10); }
+        else if(!strcmp(argv[i],"prune")){ fleet_status_prune(&f,t,(uint32_t)strtoul(argv[++i],0,10)); }
         else if(!strcmp(argv[i],"count")) printf("%d\n", fleet_status_count(&f));
         else if(!strcmp(argv[i],"at0")){ uint8_t id; const radar_wire_status_t*st; bool a;
             if(fleet_status_at(&f,0,&id,&st,&a,t)) printf("id=%u dev=%u alive=%d\n",id,st->active_devices,a); }

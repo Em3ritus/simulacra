@@ -40,3 +40,47 @@ class FS(unittest.TestCase):
     def test_aggregate_preset_excludes_stale(self):
         # a stale node's preset does not count; only the alive node (preset 3) remains
         self.assertEqual(run("upp 0 8 4 wait upp 1 8 3 aggp"), ["preset=3"])
+
+
+class FutureStamp(unittest.TestCase):
+    """A record stamped slightly in the FUTURE must read as fresh, not ancient.
+
+    The Vigil samples `now` once per UI frame but stamps node records later in the same frame (the
+    ESP-NOW drain runs mid-loop), so last_ms legitimately exceeds now by a few ms. Unsigned
+    subtraction turned that into ~49 days: every node that had just reported read STALE, the fleet
+    aggregate emptied to 0 devices / 0 threats for one frame every second, and the display flipped
+    RADAR -> HOME -> RADAR continuously."""
+
+    def test_aggregate_keeps_nodes_stamped_in_the_future(self):
+        # two nodes reported, then the observer clock is 5 ms BEHIND their stamps
+        out = run("up 0 32 up 1 24 back 5 agg")
+        self.assertEqual(out[-1], "dev=56 tc=0", f"future-stamped nodes dropped out: {out[-1]}")
+
+    def test_node_stamped_in_the_future_is_alive(self):
+        out = run("up 0 32 back 5 at0")
+        self.assertIn("alive=1", out[-1], f"future-stamped node read as dead: {out[-1]}")
+
+    def test_genuinely_stale_nodes_still_drop_out(self):
+        """The guard must not turn into 'everything is always alive'."""
+        out = run("up 0 32 wait agg")
+        self.assertEqual(out[-1], "dev=0 tc=0", f"stale node still counted: {out[-1]}")
+
+
+class Prune(unittest.TestCase):
+    """Long-gone nodes must be retired, or their SILENT cards occupy HOME's three card slots and
+    push a LIVE node off the display -- a board that looks dropped while it is still meshing.
+    Decoys re-randomise their MAC on every boot, so each reboot leaves one of these behind."""
+
+    def test_prune_drops_long_silent_nodes(self):
+        # node 0 goes quiet, node 1 reports 70 s later; prune at 60 s retires only node 0
+        out = run("up 0 32 adv 70000 up 1 24 prune 60000 count")
+        self.assertEqual(out[-1], "1", "a node silent past the prune age should be retired")
+
+    def test_prune_keeps_merely_stale_nodes(self):
+        """A node that is SILENT but recent must stay: the card is informative, not noise."""
+        out = run("up 0 32 up 1 24 adv 20000 prune 60000 count")
+        self.assertEqual(out[-1], "2", "a briefly quiet node must still show as SILENT")
+
+    def test_pruned_slot_frees_room_for_a_live_node(self):
+        out = run("up 0 32 adv 70000 up 1 24 up 2 8 up 3 8 prune 60000 count")
+        self.assertEqual(out[-1], "3", "pruning must free the dead slot for live nodes")
