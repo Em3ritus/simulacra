@@ -5,7 +5,7 @@
 
 #define RADAR_MAGIC0 0x5A
 #define RADAR_MAGIC1 0x4D
-#define RADAR_WIRE_VER 2
+#define RADAR_WIRE_VER 3      // v3: nonce is salt(8)||counter(4); v2 was salt(4)||counter(8)
 #define RADAR_TYPE_REQUEST 1
 #define RADAR_TYPE_STATUS  2
 #define RADAR_MAX_THREATS  8        // must match DETECT_MAX_THREATS
@@ -14,6 +14,7 @@
 #define DETECT_KIND_KNOWN    1      // fingerprint match (known device class)
 #define RADAR_KEY_LEN   32
 #define RADAR_NONCE_LEN 12
+#define RADAR_SALT_LEN   8          // nonce = salt(8) || counter(4 BE)
 #define RADAR_TAG_LEN   16
 #define RADAR_HDR_LEN    4          // magic(2)+ver+type
 #define RADAR_FRAME_MAX 250
@@ -35,19 +36,37 @@ typedef struct __attribute__((packed)) {
     uint8_t  preset;                                     // running preset: 0-4 sim_preset_t, 5 CUSTOM, 0xFE MIXED, 0xFF none
 } radar_wire_status_t;
 
-typedef struct { uint8_t salt[4]; uint64_t counter; bool seen; } radar_replay_t;
+typedef struct { uint8_t salt[RADAR_SALT_LEN]; uint64_t counter; bool seen; } radar_replay_t;
 
 // Build [magic|ver|type|nonce|ct|tag] into frame. nonce = salt(4)|counter(8 BE). magic|ver|type
 // authenticated as AAD. Returns 0 on success, <0 on error; *frame_len set to total bytes.
 int radar_wire_seal(uint8_t *frame, size_t *frame_len, uint8_t type,
                     const uint8_t *payload, size_t payload_len,
-                    const uint8_t key[32], const uint8_t salt[4], uint64_t counter);
+                    const uint8_t key[32], const uint8_t salt[RADAR_SALT_LEN], uint64_t counter);
 
 // Verify + decrypt a frame. Returns 0 on success (type/payload/salt/counter filled), <0 if the
-// header/magic/tag is bad. payload buffer must hold >= (frame_len - overhead) bytes.
+// header/magic/tag is bad OR the plaintext would not fit in payload_cap bytes. The capacity is
+// checked BEFORE decryption (mbedtls writes plaintext before it compares the tag), so an
+// oversized frame can never overflow `payload` — pass sizeof(your buffer) and nothing else.
 int radar_wire_open(const uint8_t *frame, size_t frame_len, const uint8_t key[32],
-                    uint8_t *out_type, uint8_t *payload, size_t *payload_len,
-                    uint8_t out_salt[4], uint64_t *out_counter);
+                    uint8_t *out_type, uint8_t *payload, size_t payload_cap, size_t *payload_len,
+                    uint8_t out_salt[RADAR_SALT_LEN], uint64_t *out_counter);
 
-// Replay gate: accept iff salt changed (peer reboot) or counter strictly newer. Updates st.
-bool radar_replay_ok(radar_replay_t *st, const uint8_t salt[4], uint64_t counter);
+// Replay gate for TELEMETRY: accept iff salt changed (peer reboot) or counter strictly newer.
+// Updates st. Deliberately forgiving — a rebooted peer must be able to resume, and the worst a
+// replayed STATUS/LEARN frame can do is restate stale data.
+//
+// NOT SUFFICIENT FOR CONTROL. The salt-change branch accepts any unfamiliar salt, so an attacker
+// holding captures from two sessions can alternate them forever, and the signature (which covers
+// salt||counter) re-verifies over exactly the replayed material. Commands that change behaviour
+// use radar_replay_monotonic_ok against a floor persisted across reboots.
+bool radar_replay_ok(radar_replay_t *st, const uint8_t salt[RADAR_SALT_LEN], uint64_t counter);
+
+// Replay gate for CONTROL: strictly monotonic, salt-independent — no "peer rebooted" escape
+// hatch. *floor must be restored from non-volatile storage at boot and re-persisted whenever
+// this returns true, or a power-cycle reopens the replay window.
+//
+// Callers MUST verify the command's signature BEFORE calling this. Advancing the floor on an
+// unauthenticated frame would let anyone in range jam it to UINT64_MAX and permanently deafen
+// the control channel.
+bool radar_replay_monotonic_ok(uint64_t *floor, uint64_t counter);
