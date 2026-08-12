@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "churn.h"
+#include "coexist.h"      // coexist_set_turbo(): the TURBO override lives at the coexist tick level
 #include "probe.h"        // probe_desired_ble_floor(): this board's designed crowd size
 #include "ble_devices.h"  // BLE_DEVICES_MAX
 #include "fleet_pop.h"    // fleet_pop_share(): this node's share when K nodes split the crowd
@@ -94,6 +95,7 @@ void sim_settings_apply(const sim_settings_t *s)
     churn_set_active_target(s->active_target);
     churn_set_paused(s->paused);
     churn_set_accel(s->accel);
+    coexist_set_turbo(s->turbo);
     s_cur = *s;
 }
 

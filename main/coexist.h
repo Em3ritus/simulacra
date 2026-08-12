@@ -46,3 +46,9 @@ uint16_t coexist_current_epoch(void);
 // than calling sim_settings_apply_preset/detect_clear_threats directly. Last request wins:
 // commands are absolute, so a newer one supersedes an undrained older one.
 void coexist_request_preset(uint8_t preset_id);
+
+// TURBO override: force both radios to their hardware ceiling and switch to fast churn intervals,
+// bypassing the fleet-share floor/ceiling and room-density population-match entirely. Releases any
+// bound personas (turbo doesn't use them). Idempotent. Call with false to hand control back to the
+// normal reprofile/glide path on the next tick.
+void coexist_set_turbo(bool on);
