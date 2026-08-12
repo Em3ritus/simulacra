@@ -142,8 +142,8 @@ deployment. Source and self-host notes: [`web/`](web/).
 
 ### Build from source (full / provisioned regime)
 
-Requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) — v5.5 for the C5/C6 decoys,
-v5.4 for the Vigil (classic ESP32). With the IDF environment active:
+Requires [ESP-IDF](https://docs.espressif.com/projects/esp-idf/) — v5.5 for the C5 decoy,
+v5.4 for the C6 decoy and the Vigil (classic ESP32). With the IDF environment active:
 
 ```sh
 # Decoy (Ward / Shade) — from the repo root
