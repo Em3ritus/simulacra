@@ -258,8 +258,10 @@ int main(int argc, char **argv) {
         int      ndev   = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 16;
         int      ticks  = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 4000;
         unsigned tickms = argc > 5 ? (unsigned)strtoul(argv[5], 0, 10) : 1000;
+        int      turbo  = argc > 6 && strcmp(argv[6], "turbo") == 0;
         srand(seed);
         roster_init();                                  // build the behaviour library (host: template fallback)
+        ble_devices_set_turbo(turbo != 0);
         uint32_t t = 0;
         ble_devices_init(ndev, t);
         static uint8_t prev[BLE_DEVICES_MAX][6];

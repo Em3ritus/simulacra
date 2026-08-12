@@ -42,6 +42,11 @@ void  ble_devices_set_count(int n, uint32_t now_ms);
 // Idempotent — safe to call every tick with a slowly-decaying value.
 void  ble_devices_set_accel(float mult, uint32_t now_ms);
 float ble_devices_accel(void);
+// TURBO mode: every freshly spawned device (init/grow/respawn-on-expiry) gets a short fixed
+// lifetime instead of the normal role/atype-based bands, overriding accel entirely. Only life_ms
+// changes -- atype/role/payload are still drawn normally, so identity diversity is unaffected.
+// Idempotent; off by default.
+void  ble_devices_set_turbo(bool on);
 // Shade-form breakdown of the live population by address subtype: restless=RPA (rotating),
 // wandering=NRPA (rotating, no resolvable identity), bound=static (never rotates).
 void  ble_devices_form_counts(uint8_t *restless, uint8_t *wandering, uint8_t *bound);

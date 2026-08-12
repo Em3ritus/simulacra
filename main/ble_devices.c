@@ -42,6 +42,13 @@ static float        s_accel = 1.0f;
 static float        s_accel_applied = 1.0f;
 #define ACCEL_MIN 1.0f
 #define ACCEL_MAX 8.0f
+// TURBO respawn band -- placeholder pending the on-hardware tuning pass
+// (docs/superpowers/specs/2026-08-12-turbo-flood-mode-design.md, Open question).
+#define TURBO_LIFE_MIN_MS 2000u   // 2 s
+#define TURBO_LIFE_MAX_MS 5000u   // 5 s
+
+static bool s_turbo = false;
+void ble_devices_set_turbo(bool on) { s_turbo = on; }
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
 
@@ -99,7 +106,9 @@ static void dev_spawn(ble_device_t *d, uint32_t now_ms)
         d->life_ms = (d->role == BLE_ROLE_RESIDENT) ? rnd_range(RESIDENT_MIN_MS, RESIDENT_MAX_MS)
                                                     : rnd_range(TRANSIENT_MIN_MS, TRANSIENT_MAX_MS);
     }
-    if (s_accel > 1.0f) {                           // accelerated churn: shorter lives, same shape
+    if (s_turbo) {                                  // TURBO: ignore role/atype bands AND accel
+        d->life_ms = rnd_range(TURBO_LIFE_MIN_MS, TURBO_LIFE_MAX_MS);
+    } else if (s_accel > 1.0f) {                    // accelerated churn: shorter lives, same shape
         uint32_t l = (uint32_t)((float)d->life_ms / s_accel);
         d->life_ms = l < 1000u ? 1000u : l;         // never below a second (would thrash the radios)
     }
