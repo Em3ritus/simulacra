@@ -12,6 +12,7 @@
 #include "observe.h"
 #include "generate.h"
 #include "probe.h"
+#include "phantom.h"
 #include "drift.h"
 #include "coexist.h"
 #include "detect.h"
@@ -1494,6 +1495,22 @@ static void test_settings_apply(void)
     ST_CHECK(churn_active_target() == ce, "MAX actually refills the crowd to the ceiling");
     ST_CHECK(churn_active_target() >= stealth_n, "MAX is never smaller than STEALTH");
     ST_CHECK(churn_accel() > 2.0f, "MAX actually accelerates turnover");
+
+    // TURBO bypasses the fleet-share ceiling/floor entirely: the board's OWN hardware max, not the
+    // K-shared value `ce` above. Also: no persona coupling (turbo releases any bound personas), and
+    // the display must correctly infer TURBO rather than reporting CUSTOM.
+    phantom_init(2, 0);          // bind a couple of personas so releasing them is actually observable
+    phantom_sync_ble(0);
+    ST_CHECK(phantom_count() == 2, "personas bound before turbo (sanity)");
+    sim_settings_apply_preset(SIM_PRESET_TURBO);
+    ST_CHECK(churn_active_target() == BLE_DEVICES_MAX, "TURBO fills BLE to the hardware max, not the fleet ceiling");
+    ST_CHECK(probe_agents_count() == PROBE_AGENTS_MAX, "TURBO fills Wi-Fi to the hardware max");
+    ST_CHECK(phantom_count() == 0, "TURBO releases any bound personas");
+    ST_CHECK(sim_settings_current_preset() == SIM_PRESET_TURBO, "display correctly infers TURBO");
+
+    sim_settings_apply_preset(SIM_PRESET_NORMAL);
+    ST_CHECK(sim_settings_current_preset() != SIM_PRESET_TURBO, "leaving TURBO actually turns it off");
+    ST_CHECK(churn_active_target() <= ce, "population returns to the fleet-shared ceiling after TURBO");
 
     // The property the floor exists for: NO preset can shrink the crowd below the persona budget.
     for (sim_preset_t p = SIM_PRESET_PAUSE; p < SIM_PRESET_COUNT; p++) {
