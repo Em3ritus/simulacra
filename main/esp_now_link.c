@@ -81,13 +81,20 @@ static void cfg_floor_load(void)
     nvs_close(h);
 }
 
-static void cfg_floor_persist(void)
+// Returns true only if the floor genuinely reached flash. The caller treats false as "don't act on
+// this command" -- an NVS failure here means the "durable BEFORE acting" comment at the call site
+// isn't actually true, and a reboot right after would let the exact same signed frame replay once
+// more. Rare (needs a flash write failure) but this is the one NVS write this codebase explicitly
+// frames as a security control, so it's worth refusing to fake success on.
+static bool cfg_floor_persist(void)
 {
     nvs_handle_t h;
-    if (nvs_open(FLEET_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;  // best-effort
-    nvs_set_u64(h, CFG_FLOOR_KEY, s_cfg_floor);
-    nvs_commit(h); nvs_close(h);   // one write per accepted control command; control-plane rates
-}                                  // are minutes apart, so flash wear is not a concern
+    if (nvs_open(FLEET_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    esp_err_t e = nvs_set_u64(h, CFG_FLOOR_KEY, s_cfg_floor);
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);                     // one write per accepted control command; control-plane rates
+    return e == ESP_OK;               // are minutes apart, so flash wear is not a concern
+}
 #endif
 static bool s_answer;   // a REQUEST was seen this drain; answered once after it, so a burst of
                         // retransmits (the Vigil sends 3x) produces one reply, not three
@@ -284,9 +291,16 @@ static void handle_frame(const uint8_t *data, int len, const uint8_t src[6])
         // never freshness. Advancing the floor only on signed frames stops an unsigned flood from
         // jamming it to UINT64_MAX and deafening the control channel for good.
         if (!radar_replay_monotonic_ok(&s_cfg_floor, ctr)) return;      // stale / replayed command
-        cfg_floor_persist();                // durable BEFORE acting: a reboot between applying the
-                                            // command and persisting the floor would re-open the
-                                            // replay window for the command just executed
+        if (!cfg_floor_persist()) {          // durable BEFORE acting: a reboot between applying the
+                                             // command and persisting the floor would re-open the
+                                             // replay window for the command just executed. If the
+                                             // write itself failed, don't act on the command at all
+                                             // -- the RAM floor is already advanced (so a same-
+                                             // session replay is still blocked), refusing here only
+                                             // costs one legitimate command under a flash fault.
+            ESP_LOGW(ETAG, "config: floor persist failed -- refusing to apply (flash write error)");
+            return;
+        }
         // Queued, not applied: presets resize the BLE population and clear_threats memsets the
         // detector table, and coexist_task is the single writer of both.
         coexist_request_preset(cmd.preset_id);
