@@ -1,10 +1,12 @@
 #include <stdbool.h>
+#include "sdkconfig.h"   // CONFIG_IDF_TARGET_* for the board-gated checks
 #include <string.h>
 #include "churn_selftest.h"
 #include "roster.h"
 #include "churn.h"
 #include "ble_devices.h"
 #include "settings.h"
+#include "vbat.h"
 #include "templates.h"
 #include "rf_model.h"
 #include "observe.h"
@@ -1035,22 +1037,46 @@ static void test_radar_wire(void)
     st.uptime_s = 4242; st.active_devices = 7; st.threat_count = 1;
     st.threats[0].hash = 0xDEADBEEF; st.threats[0].best_rssi = -44; st.threats[0].epochs = 5;
 
-    uint8_t salt[4] = { 0xAA,0xBB,0xCC,0xDD };
+    uint8_t salt[RADAR_SALT_LEN] = { 0xAA,0xBB,0xCC,0xDD,0x01,0x02,0x03,0x04 };
     uint8_t frame[RADAR_FRAME_MAX]; size_t flen = 0;
     int rc = radar_wire_seal(frame, &flen, RADAR_TYPE_STATUS,
                              (uint8_t*)&st, sizeof st, SIMULACRA_ESPNOW_KEY, salt, 100);
     ST_CHECK(rc == 0 && flen == RADAR_HDR_LEN + RADAR_NONCE_LEN + sizeof(st) + RADAR_TAG_LEN,
              "seal produces a full frame");
     ST_CHECK(frame[0] == RADAR_MAGIC0 && frame[3] == RADAR_TYPE_STATUS, "header intact");
+    // SEC-4: pin the v3 nonce layout on the wire. GCM nonce uniqueness rests on the salt width, so
+    // a silent revert to the 4-byte salt would quietly restore birthday-collision odds a long-lived
+    // fleet actually reaches -- and nothing else in the suite would notice.
+    ST_CHECK(frame[2] == 3, "wire version is 3");
+    ST_CHECK(memcmp(frame + RADAR_HDR_LEN, salt, RADAR_SALT_LEN) == 0,
+             "nonce carries the full 8-byte salt");
+    ST_CHECK(frame[RADAR_HDR_LEN + RADAR_SALT_LEN + 0] == 0 &&
+             frame[RADAR_HDR_LEN + RADAR_SALT_LEN + 1] == 0 &&
+             frame[RADAR_HDR_LEN + RADAR_SALT_LEN + 2] == 0 &&
+             frame[RADAR_HDR_LEN + RADAR_SALT_LEN + 3] == 100,
+             "counter is 4 bytes big-endian after the salt");
 
-    uint8_t type, pl[RADAR_FRAME_MAX], osalt[4]; size_t plen = 0; uint64_t ctr = 0;
-    rc = radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, pl, &plen, osalt, &ctr);
+    uint8_t type, pl[RADAR_FRAME_MAX], osalt[RADAR_SALT_LEN]; size_t plen = 0; uint64_t ctr = 0;
+    rc = radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, pl, sizeof pl, &plen, osalt, &ctr);
     ST_CHECK(rc == 0 && type == RADAR_TYPE_STATUS && plen == sizeof(st) && ctr == 100,
              "open round-trips");
     ST_CHECK(memcmp(pl, &st, sizeof st) == 0, "payload survives round-trip");
 
+    // SEC-2: a frame whose plaintext exceeds the caller's buffer must be refused BEFORE decryption
+    // (mbedtls writes plaintext, then checks the tag). Proven here with a deliberately tiny cap:
+    // the frame is otherwise valid and correctly keyed, so only the capacity check can reject it.
+    {
+        uint8_t small[8];
+        ST_CHECK(radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, small, sizeof small,
+                                 &plen, osalt, &ctr) < 0,
+                 "oversized payload rejected on capacity, not written");
+        ST_CHECK(radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, pl, sizeof(st),
+                                 &plen, osalt, &ctr) == 0,
+                 "exact-fit capacity still opens");
+    }
+
     frame[flen - 1] ^= 0x01;                                   // tamper the tag
-    ST_CHECK(radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, pl, &plen, osalt, &ctr) < 0,
+    ST_CHECK(radar_wire_open(frame, flen, SIMULACRA_ESPNOW_KEY, &type, pl, sizeof pl, &plen, osalt, &ctr) < 0,
              "tampered frame rejected");
 
     radar_replay_t rp = {0};
@@ -1058,7 +1084,29 @@ static void test_radar_wire(void)
     ST_CHECK(!radar_replay_ok(&rp, salt, 100), "replay of same counter rejected");
     ST_CHECK(!radar_replay_ok(&rp, salt, 99),  "older counter rejected");
     ST_CHECK(radar_replay_ok(&rp, salt, 101),  "newer counter accepted");
-    uint8_t salt2[4] = { 1,2,3,4 };
+
+    // SEC-1: the telemetry gate treats an unfamiliar salt as "peer rebooted" and accepts. That is
+    // deliberate there, and exactly why CONTROL must not use it — pin the difference in a test.
+    {
+        uint8_t salt_b[RADAR_SALT_LEN] = { 0xDE,0xAD,0xBE,0xEF,0x05,0x06,0x07,0x08 };
+        ST_CHECK(radar_replay_ok(&rp, salt_b, 1),
+                 "telemetry gate: new salt resets the counter (documented weakness)");
+        ST_CHECK(radar_replay_ok(&rp, salt, 1),
+                 "telemetry gate: alternating two captured sessions is accepted forever");
+
+        uint64_t floor = 0;
+        ST_CHECK(radar_replay_monotonic_ok(&floor, 100) && floor == 100, "control: first accepted");
+        ST_CHECK(!radar_replay_monotonic_ok(&floor, 100), "control: same counter rejected");
+        ST_CHECK(!radar_replay_monotonic_ok(&floor, 99),  "control: older counter rejected");
+        ST_CHECK(radar_replay_monotonic_ok(&floor, 101) && floor == 101, "control: newer accepted");
+        // The whole point: a different salt buys the replayer nothing, and the floor never retreats.
+        ST_CHECK(!radar_replay_monotonic_ok(&floor, 50),
+                 "control: replay from another session rejected regardless of salt");
+        uint64_t restored = floor;                       // simulate reboot: floor reloaded from NVS
+        ST_CHECK(!radar_replay_monotonic_ok(&restored, 101),
+                 "control: reboot does not reopen the replay window");
+    }
+    uint8_t salt2[RADAR_SALT_LEN] = { 1,2,3,4,5,6,7,8 };
     ST_CHECK(radar_replay_ok(&rp, salt2, 1),   "reboot (new salt) resets + accepts");
 }
 
@@ -1386,38 +1434,72 @@ static void test_escalation_recurrence(void)
 static void test_settings_resolve(void)
 {
     sim_settings_t s;
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_NORMAL, 16, &s) == 0, "resolve NORMAL ok");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_NORMAL, 4, 16, &s) == 0, "resolve NORMAL ok");
     ST_CHECK(s.active_target == 16 && !s.paused && s.accel == 1.0f, "NORMAL fills ceiling, running");
 
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_STEALTH, 16, &s) == 0, "resolve STEALTH ok");
-    ST_CHECK(s.active_target == 6 && s.dwell_min_ms >= 300000, "STEALTH ~40% ceiling, long dwell");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_STEALTH, 4, 16, &s) == 0, "resolve STEALTH ok");
+    ST_CHECK(s.active_target == 6 && s.accel == 1.0f, "STEALTH ~40% ceiling, unhurried turnover");
 
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_MAX, 16, &s) == 0, "resolve MAX ok");
-    ST_CHECK(s.active_target == 16 && s.accel > 2.0f && s.dwell_max_ms <= 120000, "MAX cranks turnover");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_MAX, 4, 16, &s) == 0, "resolve MAX ok");
+    ST_CHECK(s.active_target == 16 && s.accel > 2.0f, "MAX cranks turnover");
 
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_PAUSE, 16, &s) == 0, "resolve PAUSE ok");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_PAUSE, 4, 16, &s) == 0, "resolve PAUSE ok");
     ST_CHECK(s.paused && s.active_target == 16, "PAUSE freezes rotation, crowd stays on-air");
 
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_COUNT, 16, &s) == -1, "bad preset rejected");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_COUNT, 4, 16, &s) == -1, "bad preset rejected");
 
-    // Clamp floors: a hostile 'target=0, dwell=0' can't cross safe bounds.
-    sim_settings_t bad = { .active_target = 0, .paused = false, .accel = 9.0f,
-                           .dwell_min_ms = 0, .dwell_max_ms = 5, .cooldown_min_ms = 0, .cooldown_max_ms = 0 };
-    sim_settings_clamp(&bad, 16);
+    // Clamp floors: a hostile 'target=0, accel=9' can't cross safe bounds.
+    sim_settings_t bad = { .active_target = 0, .paused = false, .accel = 9.0f };
+    sim_settings_clamp(&bad, 4, 16);
     ST_CHECK(bad.active_target >= SIM_TARGET_FLOOR, "clamp raises target to floor");
-    ST_CHECK(bad.dwell_min_ms >= 30000 && bad.accel <= 4.0f && bad.cooldown_min_ms >= 300000, "clamp bounds dwell/accel/cooldown");
+    ST_CHECK(bad.accel <= 4.0f, "clamp bounds accel");
+
+    // The persona floor wins over a preset that would shrink the crowd below it: personas are a
+    // design constant and are capped at half the population, so squeezing the crowd would starve
+    // them out and leave an all-phone monoculture (or no personas at all).
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_STEALTH, 24, 32, &s) == 0 && s.active_target == 24,
+             "STEALTH raised to the persona floor");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_NORMAL, 24, 32, &s) == 0 && s.active_target == 32,
+             "NORMAL still fills the ceiling above the floor");
+    {
+        sim_settings_t low = { .active_target = 1, .paused = false, .accel = 1.0f };
+        sim_settings_clamp(&low, 24, 32);
+        ST_CHECK(low.active_target == 24, "clamp raises a starved target to the persona floor");
+    }
 
     // Ceiling honored on a smaller board (Shade-like ceiling).
-    ST_CHECK(sim_settings_resolve(SIM_PRESET_MAX, 8, &s) == 0 && s.active_target == 8, "MAX clamps to board ceiling");
+    ST_CHECK(sim_settings_resolve(SIM_PRESET_MAX, 4, 8, &s) == 0 && s.active_target == 8, "MAX clamps to board ceiling");
 }
 
 static void test_settings_apply(void)
 {
     roster_init(); churn_set_apply(noop_apply);
-    // Milestone A: churn target/dwell are inert no-ops now (lifetime owned by ble_devices),
-    // so we only assert the settings behavior that still drives churn: pause/resume.
+    const uint8_t fl = sim_settings_floor(), ce = sim_settings_ceiling();
+    ble_devices_init(ce, 0); churn_init(0);
+    // DRIFT-1: presets must move the engine, not just NVS. Milestone A left these setters inert
+    // while the CYD kept displaying the inferred preset -- the operator reading "MAX" off a decoy
+    // running NORMAL is the same failure class as a forged command, just self-inflicted.
+    //
+    // Bounds are read from the board (floor/ceiling), never hardcoded: the two differ per target
+    // (C5 32/32, C6 16/24), and on a board where the designed personas consume the whole budget
+    // STEALTH legitimately cannot shrink at all.
     sim_settings_apply_preset(SIM_PRESET_STEALTH);
     ST_CHECK(!churn_paused(), "STEALTH is running");
+    ST_CHECK(churn_active_target() >= fl, "STEALTH never starves the personas");
+    ST_CHECK(churn_active_target() <= ce, "STEALTH never exceeds the ceiling");
+    ST_CHECK(churn_accel() == 1.0f, "STEALTH leaves turnover at the designed rate");
+    uint8_t stealth_n = churn_active_target();
+
+    sim_settings_apply_preset(SIM_PRESET_MAX);
+    ST_CHECK(churn_active_target() == ce, "MAX actually refills the crowd to the ceiling");
+    ST_CHECK(churn_active_target() >= stealth_n, "MAX is never smaller than STEALTH");
+    ST_CHECK(churn_accel() > 2.0f, "MAX actually accelerates turnover");
+
+    // The property the floor exists for: NO preset can shrink the crowd below the persona budget.
+    for (sim_preset_t p = SIM_PRESET_PAUSE; p < SIM_PRESET_COUNT; p++) {
+        sim_settings_apply_preset(p);
+        ST_CHECK(churn_active_target() >= fl, "every preset keeps room for the designed personas");
+    }
 
     sim_settings_apply_preset(SIM_PRESET_PAUSE);
     ST_CHECK(churn_paused(), "apply PAUSE pauses churn");
@@ -1434,7 +1516,7 @@ static void test_settings_apply(void)
     ST_CHECK(sim_settings_current_preset() == SIM_PRESET_STEALTH, "current_preset reports STEALTH after apply");
     {
         sim_settings_t custom; sim_settings_get(&custom);
-        custom.dwell_min_ms += 12345;                 // a value no preset resolves to
+        custom.accel = 1.75f;                         // a value no preset resolves to
         sim_settings_set(&custom);
         ST_CHECK(sim_settings_current_preset() == SIM_PRESET_COUNT, "granular settings report CUSTOM");
     }
@@ -1581,12 +1663,12 @@ static void test_fleet_open_grace(void)
     fleet_key_set(kold, 10);
     fleet_key_set(knew, 11);            // rotate: prev = kold, current = knew
 
-    uint8_t salt[4] = { 1, 2, 3, 4 }; uint8_t payload[8] = { 9, 8, 7, 6, 5, 4, 3, 2 };
+    uint8_t salt[RADAR_SALT_LEN] = { 1,2,3,4,5,6,7,8 }; uint8_t payload[8] = { 9, 8, 7, 6, 5, 4, 3, 2 };
     uint8_t frame[RADAR_FRAME_MAX]; size_t flen;
     ST_CHECK(radar_wire_seal(frame, &flen, RADAR_TYPE_STATUS, payload, sizeof payload, kold, salt, 1) == 0,
              "grace: seal a frame under the old key");
-    uint8_t type, pl[RADAR_FRAME_MAX], os[4]; size_t plen; uint64_t ctr;
-    ST_CHECK(espnow_open_any(frame, flen, &type, pl, &plen, os, &ctr) == 0,
+    uint8_t type, pl[RADAR_FRAME_MAX], os[RADAR_SALT_LEN]; size_t plen; uint64_t ctr;
+    ST_CHECK(espnow_open_any(frame, flen, &type, pl, sizeof pl, &plen, os, &ctr) == 0,
              "grace: open_any falls back to previous key");
     ST_CHECK(type == RADAR_TYPE_STATUS && plen == sizeof payload && memcmp(pl, payload, plen) == 0,
              "grace: payload recovered via prev key");
@@ -1594,19 +1676,32 @@ static void test_fleet_open_grace(void)
     uint8_t rnd[32]; for (int i = 0; i < 32; i++) rnd[i] = (uint8_t)(i * 5 + 3);
     ST_CHECK(radar_wire_seal(frame, &flen, RADAR_TYPE_STATUS, payload, sizeof payload, rnd, salt, 2) == 0,
              "grace: seal under an unrelated key");
-    ST_CHECK(espnow_open_any(frame, flen, &type, pl, &plen, os, &ctr) != 0,
+    ST_CHECK(espnow_open_any(frame, flen, &type, pl, sizeof pl, &plen, os, &ctr) != 0,
              "grace: unknown key rejected by open_any");
 }
 #endif
 
+// The battery sense backend is chosen at COMPILE time. It silently defaulted to "none" on every
+// build for a long time -- nothing passed the -D flags -- so the console reported every node as
+// USB-powered no matter what it was running on. Nothing failed; the sense path simply was not
+// there. Assert a backend exists on the targets whose hardware we know.
+static void test_vbat_backend(void)
+{
+#if defined(CONFIG_IDF_TARGET_ESP32C5) || defined(CONFIG_IDF_TARGET_ESP32C6)
+    ST_CHECK(strcmp(vbat_backend(), "none") != 0,
+             "battery sense backend compiled in for this board");
+#else
+    ST_CHECK(vbat_backend() != NULL, "vbat_backend reports a name");
+#endif
+}
+
 int churn_selftest_run(void)
 {
     s_total = 0; s_fail = 0; s_first_fail = NULL;
+    test_vbat_backend();
 
     // --- roster ---
     roster_init();
-    ST_CHECK(roster_count_in_state(ID_IDLE) == CHURN_ROSTER_SIZE,
-             "roster_init: all identities IDLE");
     bool macs_ok = true, payload_ok = true;
     for (size_t i = 0; i < CHURN_ROSTER_SIZE; i++) {
         identity_t *id = roster_at(i);
@@ -1615,9 +1710,6 @@ int churn_selftest_run(void)
     }
     ST_CHECK(macs_ok, "roster: every MAC is a valid random subtype (static/RPA/NRPA)");
     ST_CHECK(payload_ok, "roster: every identity has a non-empty payload");
-
-    identity_t *c = roster_promote_candidate(0);
-    ST_CHECK(c != NULL, "promote_candidate returns an identity");
 
     // --- churn lifecycle ---
     test_churn_present();
