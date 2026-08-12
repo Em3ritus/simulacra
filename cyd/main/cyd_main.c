@@ -1129,6 +1129,7 @@ void app_main(void)
             // directly with an explicit armed flag can't catch a caller that never re-invokes it.
             static int  cs_sel = -1; static bool cs_flash = false; static bool cs_shown = false;
             static bool cs_clear_armed = false, cs_turbo_armed = false;
+            static uint8_t cs_live = 0xFF;   // ctrl.live_preset -- see comment below (2026-08 audit)
             if (modal_open){
                 draw_fleet_modal(band, now);
                 cs_shown = false;                            // force CONTROL redraw when the modal closes
@@ -1138,11 +1139,22 @@ void app_main(void)
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash ||
-                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed){
+                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed ||
+                        cs_live != ctrl.live_preset){
+                        // live_preset drives the LIVE-preset readout and the SEND/ACTIVE label
+                        // (radar_render.c draw_control) but changes purely from fleet telemetry --
+                        // a CONFIG apply landing late, a MIXED-fleet flip, a node dropping in/out --
+                        // none of which touch sel_preset/send_flash/the two armed flags. Omitting it
+                        // here is the same "computed but never drawn" bug class as the CONFIRM? fix
+                        // above, just on a different field: the LIVE line and button state would
+                        // freeze stale on screen until the operator happened to touch something else.
+                        // Found in a whole-project audit, not on hardware -- flag any regression here
+                        // for a hardware re-check next session.
                         radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                         cs_clear_armed = ctrl.clear_armed; cs_turbo_armed = ctrl.turbo_armed;
+                        cs_live = ctrl.live_preset;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
@@ -1174,13 +1186,16 @@ void app_main(void)
                 // catch a caller that never re-invokes it.
                 static int cs_sel = -1; static bool cs_flash = false; static bool cs_shown = false;
                 static bool cs_clear_armed = false, cs_turbo_armed = false;
+                static uint8_t cs_live = 0xFF;   // ctrl.live_preset -- see comment above (2026-08 audit)
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
                     if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash ||
-                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed) {
+                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed ||
+                        cs_live != ctrl.live_preset) {
                         radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
                         cs_clear_armed = ctrl.clear_armed; cs_turbo_armed = ctrl.turbo_armed;
+                        cs_live = ctrl.live_preset;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry
