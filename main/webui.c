@@ -244,7 +244,19 @@ void webui_run_config_window(uint32_t timeout_ms)
 
     // Stay up while a client is connected; only apply timeout_ms as an *idle* timeout, so a
     // connected session is never torn down mid-use (re-arm the countdown on each connect).
-    uint32_t start = (uint32_t)(esp_timer_get_time()/1000);
+    //
+    // The idle timer alone is unbounded from an attacker's perspective: sta.num > 0 keeps
+    // re-arming it forever, and this call blocks simulacra_task before coexist_set_wifi_enabled /
+    // esp_now_link_start run -- so an adversary in RF range at power-on who simply associates and
+    // stays associated holds the decoy deaf (no Wi-Fi probes, no ESP-NOW fleet link) indefinitely,
+    // or can silently pause it via one unauthenticated /api/control POST, forever. The open-AP /
+    // no-auth-API tradeoff is deliberate and documented above (this feature defaults OFF); an
+    // unbounded hold time was not. Cap the whole window at a flat multiple of timeout_ms -- long
+    // enough for a real user to actually browse and configure the device, short enough that a
+    // hostile client can't wedge it past a normal boot session.
+    uint32_t window_open_at = (uint32_t)(esp_timer_get_time()/1000);
+    uint32_t hard_cap_ms = timeout_ms * 5u;
+    uint32_t start = window_open_at;
     s_window_done = false;
     for (;;) {
         uint32_t now = (uint32_t)(esp_timer_get_time()/1000);
@@ -253,6 +265,11 @@ void webui_run_config_window(uint32_t timeout_ms)
         if (sta.num > 0) start = now;              // a client is connected -> keep the window open
         if (s_window_done) break;
         if (now - start >= timeout_ms) break;      // idle for timeout_ms -> hand Wi-Fi to the decoy
+        if (now - window_open_at >= hard_cap_ms) {  // absolute ceiling regardless of connection state
+            ESP_LOGW(WTAG, "config window hit its %u s hard cap -- closing despite an active client",
+                     (unsigned)(hard_cap_ms/1000));
+            break;
+        }
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
