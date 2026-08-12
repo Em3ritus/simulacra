@@ -42,6 +42,7 @@ class FS(unittest.TestCase):
         self.assertEqual(run("upp 0 8 4 wait upp 1 8 3 aggp"), ["preset=3"])
 
 
+@unittest.skipUnless(os.path.exists(EXE), "fleet_dump not built")
 class FutureStamp(unittest.TestCase):
     """A record stamped slightly in the FUTURE must read as fresh, not ancient.
 
@@ -66,6 +67,7 @@ class FutureStamp(unittest.TestCase):
         self.assertEqual(out[-1], "dev=0 tc=0", f"stale node still counted: {out[-1]}")
 
 
+@unittest.skipUnless(os.path.exists(EXE), "fleet_dump not built")
 class Prune(unittest.TestCase):
     """Long-gone nodes must be retired, or their SILENT cards occupy HOME's three card slots and
     push a LIVE node off the display -- a board that looks dropped while it is still meshing.
