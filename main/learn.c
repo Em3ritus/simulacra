@@ -148,30 +148,43 @@ static const char *pick_name(uint16_t company, uint8_t min_len)
 int learn_render(const learned_template_t *t, uint8_t out[31],
                  uint8_t *out_len, uint16_t *out_itvl_ms)
 {
-    memcpy(out, t->ad, t->ad_len);
-    for (uint8_t i = 0; i < t->ad_len && i < 31; i++)
-        if (t->rand_mask & (1u << i)) out[i] = (uint8_t)(esp_random() & 0xff);
-    uint8_t emit_len = t->ad_len;
-    if (t->name_len && t->name_off >= 2) {               // realistic synthetic name (never digit-pad)
-        bool last = (t->name_off + t->name_len == t->ad_len);   // name is the final AD element?
-        uint8_t avail = last ? (uint8_t)(31 - t->name_off) : t->name_len;
-        const char *nm = pick_name(t->company_id, last ? 1 : t->name_len);
-        uint8_t nl = (uint8_t)strlen(nm);
-        uint8_t m = nl < avail ? nl : avail;
-        if (last) {                                      // grow/shrink the AD to the name's natural length
-            memcpy(out + t->name_off, nm, m);
-            out[t->name_off - 2] = (uint8_t)(1 + m);      // element length byte = type(1) + m value bytes
-            emit_len = (uint8_t)(t->name_off + m);
-        } else {                                         // keep the captured length; pad tail with spaces
-            for (uint8_t i = 0; i < t->name_len; i++)
-                out[t->name_off + i] = (i < m) ? (uint8_t)nm[i] : ' ';
+    // Law 3 fail-closed. learn_strip() already rejects a forbidden byte pattern in the CAPTURED
+    // skeleton, but the masked bytes below are re-randomized here, on every render -- for a learned
+    // Apple (0x004C) manufacturer-data template that isn't the iBeacon shape, the mask covers the
+    // exact byte law3_forbidden()'s Apple-popup check inspects (see law3.c), so a uniformly random
+    // byte lands on a forbidden Continuity/Find-My/Nearby-Action subtype (0x07/0x0F/0x12) about
+    // 3-in-256 times purely by chance. Re-roll and re-check a bounded number of times before
+    // failing closed; the caller (generate.c:build_for_vendor) already treats a nonzero return as
+    // "try the next fallback" and falls through to the hardcoded, structurally-safe iBeacon
+    // template for company 0x004C, so no caller change is needed.
+    for (int attempt = 0; attempt < 4; attempt++) {
+        memcpy(out, t->ad, t->ad_len);
+        for (uint8_t i = 0; i < t->ad_len && i < 31; i++)
+            if (t->rand_mask & (1u << i)) out[i] = (uint8_t)(esp_random() & 0xff);
+        uint8_t emit_len = t->ad_len;
+        if (t->name_len && t->name_off >= 2) {               // realistic synthetic name (never digit-pad)
+            bool last = (t->name_off + t->name_len == t->ad_len);   // name is the final AD element?
+            uint8_t avail = last ? (uint8_t)(31 - t->name_off) : t->name_len;
+            const char *nm = pick_name(t->company_id, last ? 1 : t->name_len);
+            uint8_t nl = (uint8_t)strlen(nm);
+            uint8_t m = nl < avail ? nl : avail;
+            if (last) {                                      // grow/shrink the AD to the name's natural length
+                memcpy(out + t->name_off, nm, m);
+                out[t->name_off - 2] = (uint8_t)(1 + m);      // element length byte = type(1) + m value bytes
+                emit_len = (uint8_t)(t->name_off + m);
+            } else {                                         // keep the captured length; pad tail with spaces
+                for (uint8_t i = 0; i < t->name_len; i++)
+                    out[t->name_off + i] = (i < m) ? (uint8_t)nm[i] : ' ';
+            }
         }
+        if (law3_forbidden(out, emit_len)) continue;          // bad roll: re-randomize and recheck
+        *out_len = emit_len;
+        uint16_t lo = t->itvl_min_ms, hi = t->itvl_max_ms;
+        if (hi < lo) hi = lo;
+        *out_itvl_ms = lo + (hi > lo ? (uint16_t)(esp_random() % (hi - lo + 1)) : 0);
+        return 0;
     }
-    *out_len = emit_len;
-    uint16_t lo = t->itvl_min_ms, hi = t->itvl_max_ms;
-    if (hi < lo) hi = lo;
-    *out_itvl_ms = lo + (hi > lo ? (uint16_t)(esp_random() % (hi - lo + 1)) : 0);
-    return 0;
+    return -1;   // 4 straight forbidden rolls (~2e-10 by chance alone): fail closed, caller falls back
 }
 
 // ============================== store ==================================

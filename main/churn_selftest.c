@@ -267,6 +267,46 @@ static void test_learn_render(void)
     ST_CHECK(!has_digit_run(c, tn.name_off, tn.name_off + tn.name_len, 4), "render(nlast): no digit padding");
 }
 
+// Regression test for a real Law-3 gate bypass: learn_strip() masks the byte immediately after an
+// Apple (0x004C) company id for any mfg-data shape that ISN'T the exact iBeacon prefix, and that
+// masked byte is exactly the one has_apple_popup_subtype() (law3.c) checks for a forbidden
+// Continuity/Find-My/Nearby-Action subtype (0x07/0x0F/0x12). Before learn_render() re-checked its
+// own output, a uniformly random redraw landed on a forbidden byte ~3/256 (~1.17%) of the time --
+// reachable in production any time a real non-iBeacon Apple accessory (AirPods lid-open Nearby
+// Info, Handoff, etc.) got learned. This test builds exactly that shape and renders it enough times
+// to have real statistical power: pre-fix, 512 renders fail law3_forbidden with ~99.8% probability;
+// post-fix (learn_render() re-rolls up to 4x and fails closed) it should never fire.
+static void test_learn_render_apple_nonibeacon_law3(void)
+{
+    // flags, then mfg-data: company 4C 00, subtype 0x10 (Nearby Info -- NOT one of the 3 forbidden
+    // subtypes, so learn_strip's capture-time law3_forbidden check correctly accepts this shape),
+    // followed by 3 filler bytes. Deliberately NOT the iBeacon prefix (02 15), so learn_strip takes
+    // the "mask everything after the company id" branch -- the vulnerable one.
+    uint8_t apple_ad[] = { 0x02,0x01,0x06,
+                           0x07,0xFF,0x4C,0x00,0x10,0xAA,0xBB,0xCC };
+    learned_template_t t;
+    ST_CHECK(learn_strip(apple_ad, sizeof apple_ad, 0x004C, &t),
+             "law3-regress: non-iBeacon Apple mfg-data shape accepted at capture");
+    ST_CHECK((t.rand_mask & (1u << 7)), "law3-regress: subtype byte (vfrom+2) is masked -- confirms this is the vulnerable path");
+    t.itvl_min_ms = 100; t.itvl_max_ms = 200;
+
+    uint8_t a[31]; uint8_t la; uint16_t ia;
+    bool clean = true;
+    int ok_renders = 0, refused = 0;
+    for (int k = 0; k < 512; k++) {
+        int rc = learn_render(&t, a, &la, &ia);
+        if (rc == 0) {
+            ok_renders++;
+            if (law3_forbidden(a, la)) clean = false;
+        } else {
+            refused++;   // fail-closed path (should be astronomically rare, not zero-tolerance)
+        }
+    }
+    ST_CHECK(clean, "law3-regress: 512 renders of a learned non-iBeacon Apple template, zero forbidden bytes on air");
+    ST_CHECK(ok_renders > 0, "law3-regress: render actually exercised the masked path (not silently skipped)");
+    (void)refused;
+}
+
 static void test_learn_store(void)
 {
     learn_reset();
@@ -1753,6 +1793,7 @@ int churn_selftest_run(void)
     test_law3();
     test_learn_strip();
     test_learn_render();
+    test_learn_render_apple_nonibeacon_law3();
     test_learn_store();
     test_learn_pipeline();
     test_learn_nvs();
