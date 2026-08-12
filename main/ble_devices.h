@@ -34,6 +34,14 @@ void  ble_devices_init(int n, uint32_t now_ms);
 void  ble_devices_tick(uint32_t now_ms);
 int   ble_devices_count(void);
 const ble_device_t *ble_devices_at(int i);
+// Live population resize (the runtime population-match knob). Grows by spawning fresh devices,
+// shrinks by dropping high slots — but never below the highest persona-bound slot.
+void  ble_devices_set_count(int n, uint32_t now_ms);
+// Churn acceleration: lifetimes are divided by `mult` (clamped to [1,8]). Applies to devices born
+// later AND rescales the remaining life of live unbound devices, so a change takes effect now.
+// Idempotent — safe to call every tick with a slowly-decaying value.
+void  ble_devices_set_accel(float mult, uint32_t now_ms);
+float ble_devices_accel(void);
 // Shade-form breakdown of the live population by address subtype: restless=RPA (rotating),
 // wandering=NRPA (rotating, no resolvable identity), bound=static (never rotates).
 void  ble_devices_form_counts(uint8_t *restless, uint8_t *wandering, uint8_t *bound);
@@ -45,3 +53,7 @@ void  ble_devices_form_counts(uint8_t *restless, uint8_t *wandering, uint8_t *bo
 // Returns 1 if reincarnated. Bound slots do NOT expire via ble_devices_tick; the phantom owns them.
 int ble_device_sync(int slot, int persona_idx, bool apple,
                     uint32_t born_ms, uint32_t life_ms, uint32_t generation);
+
+// Release a bound slot back to the unbound crowd (respawned with a fresh identity). Called when
+// the persona count shrinks; a slot left bound to a departed persona would never age out.
+void ble_device_unbind(int slot, uint32_t now_ms);

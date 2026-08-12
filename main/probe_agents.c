@@ -87,6 +87,23 @@ uint16_t probe_agent_next_seq(probe_agent_t *a)
 int probe_agents_count(void) { return s_n; }
 const probe_agent_t *probe_agents_at(int i) { return (i >= 0 && i < s_n) ? &s_agents[i] : 0; }
 
+int probe_agents_rotate_tick(uint32_t now_ms)
+{
+    int rotated = 0;
+    for (int i = 0; i < s_n; i++) {
+        probe_agent_t *a = &s_agents[i];
+        // intra-life MAC rotation: a real phone rotates its Wi-Fi MAC within a session, independent of
+        // the BLE RPA. Fresh privacy identity; keeps arch/duty/born/life/persona_gen (the binding).
+        if (a->alive && (int32_t)(now_ms - a->next_mac_rotate_ms) >= 0) {
+            probe_random_mac(a->mac);
+            a->seq = (uint16_t)(esp_random() & 0x0FFFu);
+            a->next_mac_rotate_ms = now_ms + persona_mac_rotate_base();
+            rotated++;
+        }
+    }
+    return rotated;
+}
+
 int probe_agents_lifecycle(uint32_t now_ms)
 {
     int reborn = 0;
@@ -95,16 +112,9 @@ int probe_agents_lifecycle(uint32_t now_ms)
         if (a->alive && (now_ms - a->born_ms) >= a->life_ms) {
             agent_spawn(a, now_ms);      // dies, then reincarnates with a fresh random identity
             reborn++;
-            continue;
-        }
-        // intra-life MAC rotation: a real phone rotates its Wi-Fi MAC within a session, independent of
-        // the BLE RPA. Fresh privacy identity; keeps arch/duty/born/life/persona_gen (the binding).
-        if (a->alive && (int32_t)(now_ms - a->next_mac_rotate_ms) >= 0) {
-            probe_random_mac(a->mac);
-            a->seq = (uint16_t)(esp_random() & 0x0FFFu);
-            a->next_mac_rotate_ms = now_ms + persona_mac_rotate_base();
         }
     }
+    probe_agents_rotate_tick(now_ms);    // survivors rotate; the just-reborn have a fresh deadline
     return reborn;
 }
 
@@ -179,7 +189,11 @@ void probe_agents_glide_tick(uint32_t now_ms)
     if (!s_glide_armed) return;                    // nothing to glide toward yet
     if ((int32_t)(now_ms - s_next_glide_ms) < 0) return;   // still within the jittered interval
     int cur = probe_agents_count();
-    if (cur == s_glide_target) return;             // already there
+    if (cur == s_glide_target) {                   // already there: re-arm anyway, or s_next_glide_ms
+        s_next_glide_ms = now_ms + rnd_range(GLIDE_MIN_MS, GLIDE_MAX_MS);
+        return;                                    // stays in the past and the NEXT re-profile's
+    }                                              // first step lands instantly — a visible step
+                                                   // change, which is what the glide exists to avoid
     probe_agents_set_target(probe_glide_next(cur, s_glide_target, GLIDE_STEP), now_ms);
     s_next_glide_ms = now_ms + rnd_range(GLIDE_MIN_MS, GLIDE_MAX_MS);   // re-arm with a fresh draw
 }

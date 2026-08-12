@@ -1,6 +1,13 @@
 #include "sdkconfig.h"
 #include "coexist.h"
 
+// Print a confirmed threat's full MAC to serial. OFF by default: the rest of the project hashes
+// bystander MACs at ingest and never persists them, so this is an opt-in exception for when you
+// intend to go find the device. -DSIMULACRA_LOG_THREAT_MAC=1 to enable.
+#ifndef SIMULACRA_LOG_THREAT_MAC
+#define SIMULACRA_LOG_THREAT_MAC 0
+#endif
+
 #if CONFIG_IDF_TARGET_ESP32C5
 static const coexist_persona_t s_persona = {       // Ward: dense, mains, dual-band, stationary
     .wifi_period_ms      = 2000,                    // heavier Wi-Fi (~2 s)
@@ -47,8 +54,11 @@ coexist_due_t coexist_due(const coexist_persona_t *p, uint32_t now_ms,
 #include "wifi_observe.h"
 #include "wifi_density.h"
 #include "probe_agents.h"
+#include "ble_devices.h"
 #include "fleet_pop.h"
 #include "surveil_oui.h"
+#include "settings.h"
+#include "config_wire.h"   // CONFIG_CLEAR_THREATS sentinel
 #include <string.h>
 
 static const char *TAG = "coexist";
@@ -76,6 +86,26 @@ static struct { uint32_t hash; int8_t last_rssi; uint32_t last_ms; bool used; }
        s_locate[DETECT_MAX_THREATS];       // per-confirmed-threat locate-throttle state
 
 uint16_t coexist_current_epoch(void) { return s_epoch; }
+
+// Control-command inbox (see coexist.h). 0x100 = empty; the payload is a uint8 preset id, so the
+// sentinel sits outside the byte range and a single int carries both state and value.
+#define COEX_NO_REQ 0x100
+static volatile int s_preset_req = COEX_NO_REQ;
+
+void coexist_request_preset(uint8_t preset_id) { s_preset_req = (int)preset_id; }
+
+static void coexist_drain_requests(void)
+{
+    int req = s_preset_req;
+    if (req == COEX_NO_REQ) return;
+    s_preset_req = COEX_NO_REQ;
+    if (req == CONFIG_CLEAR_THREATS) {
+        detect_clear_threats();
+        ESP_LOGW(TAG, "control: threats cleared");
+    } else if (sim_settings_apply_preset((sim_preset_t)req) == 0) {
+        ESP_LOGW(TAG, "control: applied preset %d", req);
+    }
+}
 
 #if CONFIG_IDF_TARGET_ESP32C5
 // C5 hard exclusion: tuning to 5 GHz means BLE (2.4 GHz) cannot TX. Inject a small ROTATING
@@ -160,8 +190,17 @@ static void coexist_on_report(const uint8_t mac[6], int8_t rssi, uint16_t compan
                               const sig_hit_t *hit)
 {
     if (!detect_enabled()) return;
-    uint8_t self[COEX_SELF_MAX][6]; size_t nself = coexist_self_macs(self, COEX_SELF_MAX);
-    if (detect_mac_in_set(mac, self, nself)) return;        // never flag our own decoys
+    // Self-exclusion set, cached. This runs on the NimBLE host task for EVERY advert -- in a dense
+    // room, hundreds a second -- and used to rebuild the whole 16-entry MAC array each time even
+    // though the on-air set only changes when churn re-applies a slot. Both the cache and its
+    // generation stamp are touched only from this callback, so there is no cross-task write here;
+    // churn_apply_gen() is a plain monotonic read.
+    static uint8_t  s_self[COEX_SELF_MAX][6];
+    static size_t   s_nself;
+    static uint32_t s_self_gen = 0xFFFFFFFFu;               // force a build on the first advert
+    uint32_t gen = churn_apply_gen();
+    if (gen != s_self_gen) { s_nself = coexist_self_macs(s_self, COEX_SELF_MAX); s_self_gen = gen; }
+    if (detect_mac_in_set(mac, s_self, s_nself)) return;    // never flag our own decoys
 
     uint32_t hash = coexist_detect_hash(mac);
     uint16_t epoch = s_epoch;
@@ -174,10 +213,19 @@ static void coexist_on_report(const uint8_t mac[6], int8_t rssi, uint16_t compan
     }
     detect_result_t r = detect_observe(hash, rssi, company, epoch);
     if (r == DETECT_CONFIRM) {
+        // Everywhere else a bystander's MAC is hashed on ingest and never stored. This one line
+        // would print it in full, which is defensible for a detector (you often want the MAC to go
+        // find the device) but is a deliberate exception to the project's own model — so it is a
+        // build-time choice, not a default. Enable with -DSIMULACRA_LOG_THREAT_MAC=1.
+#if SIMULACRA_LOG_THREAT_MAC
         ESP_LOGW(TAG, "THREAT confirmed id=%04x vendor=0x%04x epochs=%u rssi=%d "
                       "mac=%02X:%02X:%02X:%02X:%02X:%02X",
                  (unsigned)(hash & 0xFFFF), company, DETECT_EPOCH_STRIKES, rssi,
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+#else
+        ESP_LOGW(TAG, "THREAT confirmed id=%04x vendor=0x%04x epochs=%u rssi=%d",
+                 (unsigned)(hash & 0xFFFF), company, DETECT_EPOCH_STRIKES, rssi);
+#endif
     } else if (r == DETECT_KNOWN) {
         coexist_locate_emit(hash, hash & 0xFFFF, rssi, now);
     }
@@ -204,10 +252,23 @@ static inline void coexist_detect_led_init(void) {}
 static inline void coexist_detect_led_tick(uint32_t now_ms) { (void)now_ms; }
 #endif
 
-static void coexist_reprofile(const coexist_persona_t *p)
+// Re-profile is split across ticks: _start opens the observation window and snapshots the model,
+// _finish runs when the window closes. In between, coexist_task keeps ticking churn, draining the
+// detector and injecting probes — none of which used to happen during the 15 s scan.
+static rf_model_t s_repro_prev;        // pre-window snapshot (static: ~1 KB, too big for the stack)
+static bool       s_repro_active;
+
+static void coexist_reprofile_start(void)
 {
-    rf_model_t prev = *observe_model();                     // snapshot pre-update
-    observe_window(OBS_REPROFILE_MS);                       // ~15 s scan while advertising
+    if (s_repro_active) return;                             // a window is already open
+    s_repro_prev   = *observe_model();                      // snapshot pre-update
+    s_repro_active = true;
+    observe_window_begin(OBS_REPROFILE_MS);                 // ~15 s scan while advertising
+}
+
+static void coexist_reprofile_finish(const coexist_persona_t *p)
+{
+    const rf_model_t prev = s_repro_prev;
     const rf_model_t *cur = observe_model();
     if (cur->total_obs < GEN_MIN_OBS) {                     // too sparse -> keep current population
         ESP_LOGW(TAG, "reprofile: total_obs=%u < %d -> skip reshape",
@@ -220,10 +281,21 @@ static void coexist_reprofile(const coexist_persona_t *p)
         detect_on_epoch_change(s_epoch);
         ESP_LOGW(TAG, "epoch -> %u (drift=%.3f)", (unsigned)s_epoch, score);
     }
-    roster_reseed_idle(cur);                                // fresh identities into the IDLE pool
-    uint8_t at = generate_active_target(cur);
+    roster_reseed(cur);                                     // fresh room-matched behaviour library
+    // Room density flexes the crowd, but never below what this node's designed persona count needs
+    // (personas are capped at half the crowd, so N personas require 2N devices). GEN_CEILING caps
+    // the density estimate at 8 on Shade / 16 on Ward, which on its own would shrink the crowd to
+    // the point where personas get squeezed out -- the phones we present are a design constant of
+    // the node, not a property of the room; it is the unbound beacons/tags that should flex.
+    // generate_active_target estimates the density of the WHOLE room; this node presents its 1/K
+    // share of it. The boot path already did this and the re-profile did not, so the crowd snapped
+    // back to a full standalone-sized population at the first re-profile.
+    uint8_t at = (uint8_t)fleet_pop_share(generate_active_target(cur));
+    uint8_t floor_n = sim_settings_floor();
+    if (at < floor_n) at = floor_n;
     churn_set_active_target(at);                            // resize to the new population
-    ESP_LOGW(TAG, "reprofile: drift=%.3f active_target=%u", score, (unsigned)at);
+    ESP_LOGW(TAG, "reprofile: drift=%.3f active_target=%u (floor %u, fleet_k %d)",
+             score, (unsigned)at, (unsigned)floor_n, fleet_pop_size());
     if (prev.sweeps > 0) coexist_handle_drift(p, score);   // skip day-one false trigger (empty prev model)
 }
 
@@ -250,7 +322,19 @@ static void coexist_task(void *arg)
     uint32_t hop24 = 0;
     for (;;) {
         uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-        churn_tick(now);                                // BLE ext-adv runs continuously under coex
+        fleet_pop_refresh(now);                         // live node census -> everyone's 1/K share
+        {   // A node joining or leaving changes everyone's share; resize now rather than waiting
+            // for the next re-profile (up to 10 min on Ward).
+            static int s_last_k = -1;
+            int k = fleet_pop_size();
+            if (k != s_last_k) {
+                if (s_last_k >= 0) ESP_LOGW(TAG, "fleet census %d -> %d nodes; resizing crowd", s_last_k, k);
+                s_last_k = k;
+                sim_settings_recalc_bounds();
+            }
+        }
+        coexist_drain_requests();                       // control commands land here, not on the
+        churn_tick(now);                                // caller's task (single-writer discipline)
         coexist_decay_accel();
         detect_threat_t nt;
         if (detect_drain_pending(&nt)) {                // persist a new confirmation off the BLE callback
@@ -267,19 +351,53 @@ static void coexist_task(void *arg)
         }
         coexist_detect_led_tick(now);
         coexist_due_t d = coexist_due(p, now, &last_wifi, &last_repro);
-        if (d.fire_wifi && s_wifi_ok) {
+        // s_wifi_allowed as well as s_wifi_ok: the setter's false path used to write a flag the
+        // tick never read, so coexist_set_wifi_enabled(false) after start silently kept injecting.
+        //
+        // Also held off while the re-profile scan is open. The scan used to block this whole task,
+        // so it was implicitly Wi-Fi-silent; now that the tick keeps running, injecting during the
+        // window would steal antenna time from the BLE scan (on Ward a 5 GHz excursion stops BLE TX
+        // outright) and the density we measure would come out low. Keep the measurement clean —
+        // churn, the detector drain and threat persistence still run, which is the point.
+        if (d.fire_wifi && s_wifi_ok && s_wifi_allowed && !observe_window_active()) {
             probe_agents_glide_tick(now);                             // ramp applied pop toward target
             const uint8_t *ch24; size_t n24 = probe_channels_24(&ch24);
+            // The glide moves the Wi-Fi agent count to match room density; the persona registry
+            // must follow it. Personas beyond the agent count would advertise a phone on BLE that
+            // never probes on Wi-Fi, and agents beyond the persona count would have no BLE twin and
+            // no lifecycle here (probe_agents_lifecycle is SIMULACRA_PROBE-only), so they would
+            // never age out. Keeping the counts equal preserves the one-device-two-radios invariant.
+            // Personas may never fill the whole BLE crowd: a crowd that is 100% phone-shaped
+            // personas is a monoculture (every device company 0x0000, no beacons, no tags), which
+            // is a stronger tell than any single device. Cap them at half the population and pull
+            // the Wi-Fi agent set down to match, preserving the one-device-two-radios invariant.
+            int crowd = ble_devices_count();
+            int cap   = crowd / 2;  if (cap < 1) cap = 1;
+            if (probe_agents_count() > cap) probe_agents_set_target(cap, now);
+            phantom_set_count(probe_agents_count(), now);
             phantom_sync_wifi(now);                                   // agents track persona lives
+            probe_agents_rotate_tick(now);        // intra-life MAC rotation (8-15 min): without this
+                                                  // a persona holds ONE Wi-Fi MAC for its whole life
+                                                  // while its BLE RPA rotates — the mismatch is the
+                                                  // tell. probe_agents_lifecycle is standalone-only.
             if (n24) probe_inject_burst(ch24[hop24++ % n24]);        // 2.4 GHz (coex-arbitrated)
             if (p->use_5g && (++s_wifi_ctr % COEX_5G_EVERY == 0)) coexist_5g_excursion();
         }
-        if (s_wifi_ok && !s_wifi_obs_started) {
+        if (!s_wifi_ok || !s_wifi_allowed) {
+            // No Wi-Fi means no probe requests. A persona is a phone presenting on both radios, so
+            // with one radio gone every persona would be a BLE "phone" that has never probed for a
+            // network -- more conspicuous than not presenting phones at all. Release them; the
+            // slots rejoin the unbound crowd as ordinary beacons/tags, which is still plausible.
+            phantom_set_count(0, now);
+        }
+        if (s_wifi_ok && s_wifi_allowed && !s_wifi_obs_started) {
             s_wifi_obs_ok = wifi_obs_start();       // enable promiscuous once the STA/injection side is up
             s_wifi_obs_started = true;
         }
-        if (d.fire_reprofile) {
-            coexist_reprofile(p);                                   // BLE population-match (may early-return)
+        if (d.fire_reprofile) coexist_reprofile_start();
+        if (s_repro_active && observe_window_poll(now)) {           // window closed -> reshape
+            s_repro_active = false;
+            coexist_reprofile_finish(p);                            // BLE population-match (may early-return)
             int wt      = s_wifi_obs_ok ? wifi_obs_target(now) : WIFI_OBS_FALLBACK;
             int k       = fleet_pop_live_size(now);                 // live fleet size (peers heard + self)
             int agents  = fleet_pop_share_k(wt, k);                 // this node's share of the crowd target
@@ -289,7 +407,7 @@ static void coexist_task(void *arg)
                      s_wifi_obs_ok ? wifi_obs_density(now) : -1, wt, k, agents,
                      s_wifi_obs_ok ? "" : " (fallback)");
         }
-        if (s_listen_ch >= 0 && s_wifi_ok)                       // espnow: park on the listen channel between bursts
+        if (s_listen_ch >= 0 && s_wifi_ok && s_wifi_allowed && !observe_window_active())
             esp_wifi_set_channel((uint8_t)s_listen_ch, WIFI_SECOND_CHAN_NONE);
         vTaskDelay(pdMS_TO_TICKS(COEX_TICK_MS));
     }

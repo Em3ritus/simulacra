@@ -1,54 +1,83 @@
 #include "settings.h"
-#include "churn.h"    // CHURN_DWELL_*/CHURN_COOLDOWN_* firmware defaults, CHURN_ACTIVE_SET
+#include "churn.h"
+#include "probe.h"        // probe_desired_ble_floor(): this board's designed crowd size
+#include "ble_devices.h"  // BLE_DEVICES_MAX
+#include "fleet_pop.h"    // fleet_pop_share(): this node's share when K nodes split the crowd
 #include "nvs.h"
 #include <string.h>
 
 #define SETTINGS_NVS_NS  "sim"
-#define SETTINGS_NVS_KEY "settings"
+// Key bumped to "settings2" when the preset ceiling moved from CHURN_ACTIVE_SET (16) to the
+// board's designed crowd size (32 on C5 / 24 on C6). active_target is stored as an absolute count,
+// so a blob written under the old scale means something different under the new one -- a persisted
+// 16 silently pinned the C5 to half its intended population. Reading the old key would restore a
+// number that is no longer meaningful, so the old blob is abandoned and defaults are re-derived.
+#define SETTINGS_NVS_KEY "settings2"
 
 static sim_settings_t s_cur;   // current in-RAM settings (source of truth)
 
-static uint32_t u32_clamp(uint32_t v, uint32_t lo, uint32_t hi)
-{ return v < lo ? lo : (v > hi ? hi : v); }
-
-void sim_settings_clamp(sim_settings_t *s, uint8_t ceiling)
+// Preset ceiling = this board's DESIGNED crowd size (personas + unbound companions), not the
+// legacy CHURN_ACTIVE_SET.
+//
+// Those two are different scales and conflating them broke the crowd on hardware: CHURN_ACTIVE_SET
+// is 16, while the C5's designed population is 32 (16 personas + 16 unbound). Once
+// churn_set_active_target became live again, applying NORMAL at boot shrank the crowd from 32 to
+// 16 -- exactly the persona count -- so every slot was persona-bound and the whole BLE crowd became
+// company-0x0000 phone shapes with no beacons or tags at all. A pure-phone crowd is a monoculture,
+// which is the failure the diversity log exists to catch.
+uint8_t sim_settings_ceiling(void)
 {
-    if (ceiling < SIM_TARGET_FLOOR) ceiling = SIM_TARGET_FLOOR;
-    if (s->active_target < SIM_TARGET_FLOOR) s->active_target = SIM_TARGET_FLOOR;
+    // This node's SHARE of the fleet-wide designed crowd. Dividing here as well as in the floor
+    // keeps both bounds on the same scale -- otherwise a 3-node fleet would floor at 1/K of the
+    // personas but still be allowed to fill a whole standalone-sized crowd.
+    int c = fleet_pop_share(probe_desired_ble_floor());
+    if (c > BLE_DEVICES_MAX) c = BLE_DEVICES_MAX;
+    if (c < SIM_TARGET_FLOOR) c = SIM_TARGET_FLOOR;
+    return (uint8_t)c;
+}
+
+// Personas are capped at half the crowd (see coexist), so hosting N of them needs 2N devices.
+uint8_t sim_settings_floor(void)
+{
+    int f = 2 * fleet_pop_share(probe_phone_target());
+    if (f > BLE_DEVICES_MAX) f = BLE_DEVICES_MAX;
+    if (f < SIM_TARGET_FLOOR) f = SIM_TARGET_FLOOR;
+    return (uint8_t)f;
+}
+
+void sim_settings_clamp(sim_settings_t *s, uint8_t floor, uint8_t ceiling)
+{
+    if (floor < SIM_TARGET_FLOOR) floor = SIM_TARGET_FLOOR;
+    if (ceiling < floor) ceiling = floor;
+    if (s->active_target < floor) s->active_target = floor;
     if (s->active_target > ceiling) s->active_target = ceiling;
     if (s->accel < 1.0f) s->accel = 1.0f;
     if (s->accel > 4.0f) s->accel = 4.0f;
-    s->dwell_min_ms = u32_clamp(s->dwell_min_ms, 30000u, 900000u);
-    s->dwell_max_ms = u32_clamp(s->dwell_max_ms, s->dwell_min_ms, 900000u);
-    s->cooldown_min_ms = u32_clamp(s->cooldown_min_ms, 300000u, 3600000u);
-    s->cooldown_max_ms = u32_clamp(s->cooldown_max_ms, s->cooldown_min_ms, 3600000u);
 }
 
-int sim_settings_resolve(sim_preset_t p, uint8_t ceiling, sim_settings_t *out)
+// Presets differ ONLY in knobs the engine actually reads: crowd size, turnover rate, and pause.
+// The old dwell/cooldown windows described the roster promote/retire state machine that Milestone
+// A replaced with per-device lifetimes; they were still stored and reported after they stopped
+// driving anything, which is how the CYD came to display a preset the firmware was not running.
+int sim_settings_resolve(sim_preset_t p, uint8_t floor, uint8_t ceiling, sim_settings_t *out)
 {
     if (p >= SIM_PRESET_COUNT) return -1;
-    uint8_t stealth = (uint8_t)((ceiling * 4) / 10);   // ~40% of ceiling
-    sim_settings_t s = {
-        .active_target = ceiling, .paused = false, .accel = 1.0f,
-        .dwell_min_ms = CHURN_DWELL_MIN_MS, .dwell_max_ms = CHURN_DWELL_MAX_MS,
-        .cooldown_min_ms = CHURN_COOLDOWN_MIN_MS, .cooldown_max_ms = CHURN_COOLDOWN_MAX_MS,
-    };
+    uint8_t stealth = (uint8_t)((ceiling * 4) / 10);   // ~40% of ceiling (raised to floor below)
+    sim_settings_t s = { .active_target = ceiling, .paused = false, .accel = 1.0f };
     switch (p) {
     case SIM_PRESET_PAUSE:                                  // NORMAL values, rotation frozen
         s.paused = true; break;
     case SIM_PRESET_STEALTH:
-        s.active_target = stealth; s.dwell_min_ms = 300000; s.dwell_max_ms = 600000; break;
+        s.active_target = stealth; break;                   // smaller crowd, unhurried turnover
     case SIM_PRESET_NORMAL:
         break;                                              // firmware defaults
     case SIM_PRESET_DENSE:
-        s.accel = 1.5f; s.dwell_min_ms = 90000; s.dwell_max_ms = 240000;
-        s.cooldown_min_ms = 900000; s.cooldown_max_ms = 1800000; break;
+        s.accel = 1.5f; break;                              // full crowd, 1.5x turnover
     case SIM_PRESET_MAX:
-        s.accel = 2.5f; s.dwell_min_ms = 45000; s.dwell_max_ms = 120000;
-        s.cooldown_min_ms = 600000; s.cooldown_max_ms = 1200000; break;
+        s.accel = 2.5f; break;                              // full crowd, 2.5x turnover
     default: return -1;
     }
-    sim_settings_clamp(&s, ceiling);
+    sim_settings_clamp(&s, floor, ceiling);
     *out = s;
     return 0;
 }
@@ -58,8 +87,6 @@ void sim_settings_apply(const sim_settings_t *s)
     churn_set_active_target(s->active_target);
     churn_set_paused(s->paused);
     churn_set_accel(s->accel);
-    churn_set_dwell_ms(s->dwell_min_ms, s->dwell_max_ms);
-    churn_set_cooldown_ms(s->cooldown_min_ms, s->cooldown_max_ms);
     s_cur = *s;
 }
 
@@ -73,29 +100,41 @@ static void settings_save(void)
 
 void sim_settings_set(const sim_settings_t *s)
 {
-    sim_settings_t c = *s; sim_settings_clamp(&c, CHURN_ACTIVE_SET);
+    sim_settings_t c = *s; sim_settings_clamp(&c, sim_settings_floor(), sim_settings_ceiling());
     sim_settings_apply(&c); settings_save();
 }
 
 int sim_settings_apply_preset(sim_preset_t p)
 {
     sim_settings_t s;
-    if (sim_settings_resolve(p, CHURN_ACTIVE_SET, &s) != 0) return -1;
+    if (sim_settings_resolve(p, sim_settings_floor(), sim_settings_ceiling(), &s) != 0) return -1;
     sim_settings_apply(&s); settings_save();
     return 0;
 }
 
+// Re-clamp the live settings to the CURRENT board bounds and apply if the target moved.
+//
+// The bounds depend on the live node census (each node runs 1/K of the fleet crowd), and K changes
+// as peers are heard or go quiet. Without this the crowd would only resize at the next re-profile
+// -- up to 10 minutes on Ward -- so a fleet powering on together would radiate ~K times the
+// intended density for that whole window. Deliberately does NOT persist: the census is a runtime
+// observation, not an operator choice, and writing it would overwrite the chosen preset in NVS.
+void sim_settings_recalc_bounds(void)
+{
+    sim_settings_t s = s_cur;
+    sim_settings_clamp(&s, sim_settings_floor(), sim_settings_ceiling());
+    if (s.active_target != s_cur.active_target) sim_settings_apply(&s);
+}
+
 void sim_settings_get(sim_settings_t *out) { *out = s_cur; }
 
-sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t ceiling)
+sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t floor, uint8_t ceiling)
 {
     for (sim_preset_t p = SIM_PRESET_PAUSE; p < SIM_PRESET_COUNT; p++) {
         sim_settings_t r;
-        if (sim_settings_resolve(p, ceiling, &r) != 0) continue;
+        if (sim_settings_resolve(p, floor, ceiling, &r) != 0) continue;
         if (r.active_target == cur->active_target && r.paused == cur->paused &&
-            r.accel == cur->accel &&
-            r.dwell_min_ms == cur->dwell_min_ms && r.dwell_max_ms == cur->dwell_max_ms &&
-            r.cooldown_min_ms == cur->cooldown_min_ms && r.cooldown_max_ms == cur->cooldown_max_ms)
+            r.accel == cur->accel)
             return p;
     }
     return SIM_PRESET_COUNT;   // CUSTOM
@@ -103,7 +142,7 @@ sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t ceilin
 
 sim_preset_t sim_settings_current_preset(void)
 {
-    return sim_settings_match_preset(&s_cur, CHURN_ACTIVE_SET);
+    return sim_settings_match_preset(&s_cur, sim_settings_floor(), sim_settings_ceiling());
 }
 
 bool sim_settings_get_paused(void) { return s_cur.paused; }
@@ -115,7 +154,7 @@ void sim_settings_init(void)
     bool loaded = (nvs_open(SETTINGS_NVS_NS, NVS_READONLY, &h) == ESP_OK) &&
                   (nvs_get_blob(h, SETTINGS_NVS_KEY, &s, &len) == ESP_OK) && len == sizeof s;
     if (loaded) nvs_close(h);
-    if (!loaded) sim_settings_resolve(SIM_PRESET_NORMAL, CHURN_ACTIVE_SET, &s);
-    sim_settings_clamp(&s, CHURN_ACTIVE_SET);   // guard against a stale/foreign blob
+    if (!loaded) sim_settings_resolve(SIM_PRESET_NORMAL, sim_settings_floor(), sim_settings_ceiling(), &s);
+    sim_settings_clamp(&s, sim_settings_floor(), sim_settings_ceiling());   // guard a stale blob
     sim_settings_apply(&s);
 }

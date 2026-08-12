@@ -22,6 +22,12 @@ typedef struct {
 void  phantom_init(int n, uint32_t now_ms);      // create n phantoms (clamped to PHANTOM_MAX)
 int   phantom_lifecycle(uint32_t now_ms);        // retire+reincarnate expired; returns # reborn
 int   phantom_count(void);
+// Track the live Wi-Fi agent count. The persona count MUST equal the agent count: a persona
+// without an agent is a BLE "phone" that never probes (a single-radio ghost -- the exact artefact
+// personas exist to defeat), and an agent without a persona is a Wi-Fi device with no BLE twin and
+// no lifecycle on the coexist path (it would never age out). Growing spawns fresh personas;
+// shrinking releases the surplus BLE slots back to the unbound crowd via ble_device_unbind.
+void  phantom_set_count(int n, uint32_t now_ms);
 const phantom_t *phantom_at(int i);
 probe_arch_t phantom_arch(phantom_family_t f);   // family -> Wi-Fi archetype
 uint16_t     phantom_company(phantom_family_t f);// family -> BLE company id (0 = anonymous RPA)

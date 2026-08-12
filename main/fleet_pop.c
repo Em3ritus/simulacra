@@ -1,9 +1,20 @@
 #include "fleet_pop.h"
 #include "fleet.h"
 
+// Cached live census so fleet_pop_size() stays clock-free (settings.c and the boot path have no
+// `now` to hand). Refreshed once per coexist tick.
+static int s_live = 1;
+
+void fleet_pop_refresh(uint32_t now_ms)
+{
+    int k = fleet_pop_live_size(now_ms);
+    s_live = k < 1 ? 1 : k;
+}
+
 int fleet_pop_size(void)
 {
-    int k = SIMULACRA_FLEET_SIZE;
+    int k = s_live;                       // peers actually heard right now
+    if (SIMULACRA_FLEET_SIZE > k) k = SIMULACRA_FLEET_SIZE;   // operator-declared lower bound
     return k < 1 ? 1 : k;
 }
 

@@ -11,10 +11,6 @@
 #define CHURN_ACTIVE_SET        16   // MAX active-set capacity (Ward ceiling); runtime target <= this
 #define CHURN_TICK_MS           250
 #define CHURN_SLICE_MS          1000
-#define CHURN_DWELL_MIN_MS      180000u    // 3 min
-#define CHURN_DWELL_MAX_MS      600000u    // 10 min
-#define CHURN_COOLDOWN_MIN_MS   1800000u   // 30 min
-#define CHURN_COOLDOWN_MAX_MS   3600000u   // 60 min
 
 // apply(instance, id): place identity `id` on hardware `instance`. Return value
 // (the adapter's rc) is ignored by the engine. Matches churn_adv_apply's int
@@ -22,24 +18,24 @@
 typedef int (*churn_apply_fn)(uint8_t instance, const identity_t *id);
 
 void   churn_set_apply(churn_apply_fn fn);
-// Milestone A: lifetime/rotation owned by ble_devices; these tuning setters are retained (inert) for API compatibility.
-// Set how many active slots churn fills/manages (1..CHURN_ACTIVE_SET). Call before churn_init.
-// Defaults to CHURN_ACTIVE_SET. This is the population-match knob (M6).
+// Population-match knob (M6): resize the live crowd to n (1..CHURN_ACTIVE_SET). Since Milestone A
+// the population lives in ble_devices, so this forwards to ble_devices_set_count using the clock
+// recorded by the last churn_tick. Safe to call at runtime, not just before churn_init.
 void   churn_set_active_target(uint8_t n);
 // Runtime read-back of the active target (population-match knob).
 uint8_t churn_active_target(void);
 // webui: pause/resume the churn rotation (BLE keeps its last advertised state).
 void   churn_set_paused(bool paused);
 bool   churn_paused(void);
-// M8: runtime retirement-rate boost. mult >= 1.0 shortens the dwell window of newly
-// promoted identities (mult=1.0 = default behavior). The coordinator decays it back to 1.0.
+// Monotonic counter bumped every time a device is (re)applied to a hardware advertising slot, i.e.
+// whenever the set of live decoy addresses changes. Lets a consumer cache a view of that set and
+// rebuild it only when it actually changed, instead of once per received advert.
+uint32_t churn_apply_gen(void);
+// M8: runtime turnover boost. mult >= 1.0 divides device lifetimes, so the crowd arrives and
+// departs faster (mult=1.0 = the designed bands). Anti-entourage raises it on a drift spike and
+// the coordinator decays it back to 1.0. Forwards to ble_devices_set_accel; idempotent.
 void   churn_set_accel(float mult);
-// Runtime dwell/cooldown windows (ms). Default to the CHURN_DWELL_*/CHURN_COOLDOWN_* firmware
-// constants; the settings backend overrides them per preset. lo<=hi enforced by the setter.
-void   churn_set_dwell_ms(uint32_t lo, uint32_t hi);
-void   churn_set_cooldown_ms(uint32_t lo, uint32_t hi);
-void   churn_get_dwell_ms(uint32_t *lo, uint32_t *hi);
-void   churn_get_cooldown_ms(uint32_t *lo, uint32_t *hi);
+float  churn_accel(void);
 void   churn_init(uint32_t now_ms);
 void   churn_tick(uint32_t now_ms);
 size_t churn_active_count(void);                 // non-NULL active slots

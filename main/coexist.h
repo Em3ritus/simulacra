@@ -37,3 +37,12 @@ coexist_due_t coexist_due(const coexist_persona_t *p, uint32_t now_ms,
 
 // Current location-epoch (M9): advanced when a re-profile measures a materially changed room.
 uint16_t coexist_current_epoch(void);
+
+// Queue a control command (a sim_preset_t, or CONFIG_CLEAR_THREATS) for the coexist tick to apply.
+//
+// Applying a preset resizes the BLE population and rescales device lifetimes; clearing threats
+// memsets the detector table. coexist_task is the single writer of both, so callers on other
+// tasks -- the ESP-NOW responder and the config-AP HTTP handler -- must go through here rather
+// than calling sim_settings_apply_preset/detect_clear_threats directly. Last request wins:
+// commands are absolute, so a newer one supersedes an undrained older one.
+void coexist_request_preset(uint8_t preset_id);

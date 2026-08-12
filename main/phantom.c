@@ -49,6 +49,27 @@ int phantom_lifecycle(uint32_t now_ms) {
     return reborn;
 }
 
+void phantom_set_count(int n, uint32_t now_ms)
+{
+    if (n > PHANTOM_MAX) n = PHANTOM_MAX;
+    if (n < 0) n = 0;                  // 0 is legal here (unlike phantom_init): with the Wi-Fi
+    if (n == s_n) return;              // radio unavailable, NO persona can be honestly presented
+    if (n > s_n) {
+        // Guarantee a BLE slot for every persona before creating it. phantom_sync_ble binds slot i
+        // to persona i and simply stops at ble_devices_count(), so a persona created beyond the BLE
+        // population would be Wi-Fi-only — the same single-radio ghost, mirrored.
+        if (n > ble_devices_count()) ble_devices_set_count(n, now_ms);
+        for (int i = s_n; i < n; i++) { s_ph[i].generation = 0; ph_spawn(&s_ph[i], now_ms); }
+    } else {
+        // Releasing, not deleting: slot i keeps advertising, but as an ordinary member of the
+        // unbound crowd with its own lifetime. Leaving it bound would freeze it -- ble_devices_tick
+        // skips bound slots, so a slot whose persona no longer exists would advertise one phone
+        // shape forever, which is worse than the ghost we are removing.
+        for (int i = n; i < s_n; i++) ble_device_unbind(i, now_ms);
+    }
+    s_n = n;
+}
+
 int phantom_count(void) { return s_n; }
 const phantom_t *phantom_at(int i) { return (i >= 0 && i < s_n) ? &s_ph[i] : 0; }
 

@@ -12,20 +12,24 @@ static uint32_t s_phase;
 static uint32_t s_last_slice_ms;
 static churn_apply_fn s_apply;
 static bool     s_paused;                            // webui: pause the churn rotation
+static uint32_t s_now_ms;                            // last tick's clock; time source for the setters
+static uint32_t s_apply_gen;                         // bumped whenever the on-air set changes
 
 void    churn_set_apply(churn_apply_fn fn) { s_apply = fn; }
 void    churn_set_paused(bool paused) { s_paused = paused; }
 bool    churn_paused(void) { return s_paused; }
+uint32_t churn_apply_gen(void) { return s_apply_gen; }
 
 void churn_init(uint32_t now_ms)
 {
-    s_phase = 0; s_last_slice_ms = now_ms;
+    s_phase = 0; s_last_slice_ms = now_ms; s_now_ms = now_ms;
     for (int i = 0; i < CHURN_HW_INSTANCES; i++) { s_occ_idx[i] = -1; memset(s_occ_addr[i], 0, 6); }
 }
 
 void churn_tick(uint32_t now_ms)
 {
-    if (s_paused) return;                          // hold the current on-air set
+    s_now_ms = now_ms;                             // before the pause gate: the setters need a
+    if (s_paused) return;                          // current clock even while rotation is frozen
     phantom_lifecycle(now_ms);      // advance persona births/deaths (single source of truth)
     phantom_sync_ble(now_ms);       // bound BLE slots co-appear/co-leave with their persona
     ble_devices_tick(now_ms);       // advance the unbound crowd (bound slots are skipped)
@@ -47,6 +51,7 @@ void churn_tick(uint32_t now_ms)
         if (s_occ_idx[i] != idx || memcmp(s_occ_addr[i], d->id.addr, 6) != 0) {
             s_occ_idx[i] = idx;
             memcpy(s_occ_addr[i], d->id.addr, 6);
+            s_apply_gen++;                             // invalidates cached views of the on-air set
             if (s_apply) s_apply((uint8_t)i, &d->id);   // (re)apply this device on instance i
         }
     }
@@ -60,12 +65,14 @@ const identity_t *churn_active_at(size_t slot)
     return d ? &d->id : 0;
 }
 
-// Milestone A: lifetime/rotation owned by ble_devices; these tuning setters are retained
-// (inert) below for API compatibility with settings.c/webui.c/coexist.c.
-void    churn_set_active_target(uint8_t n) { (void)n; }   // population size owned by ble_devices_init (Milestone A)
+// Milestone A moved lifetime/rotation into ble_devices; these setters forward there rather than
+// owning state. They were stubbed inert during the refactor, which silently killed runtime
+// population-match and anti-entourage while their callers (settings.c, coexist.c) and the CYD
+// preset display carried on as if they worked.
+//
+// Time source: churn_tick records the clock, so these stay parameter-free for their callers and
+// churn.c keeps no dependency on esp_timer (it is host-testable).
+void    churn_set_active_target(uint8_t n) { ble_devices_set_count((int)n, s_now_ms); }
 uint8_t churn_active_target(void) { return (uint8_t)ble_devices_count(); }
-void    churn_set_accel(float mult) { (void)mult; }
-void    churn_set_dwell_ms(uint32_t lo, uint32_t hi) { (void)lo; (void)hi; }
-void    churn_set_cooldown_ms(uint32_t lo, uint32_t hi) { (void)lo; (void)hi; }
-void    churn_get_dwell_ms(uint32_t *lo, uint32_t *hi) { if (lo) *lo = 0; if (hi) *hi = 0; }
-void    churn_get_cooldown_ms(uint32_t *lo, uint32_t *hi) { if (lo) *lo = 0; if (hi) *hi = 0; }
+void    churn_set_accel(float mult) { ble_devices_set_accel(mult, s_now_ms); }
+float   churn_accel(void) { return ble_devices_accel(); }

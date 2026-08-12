@@ -33,7 +33,7 @@
 #include "esp_timer.h"
 #include "esp_random.h"
 #include "nvs_flash.h"
-#include "driver/gpio.h"
+#include "esp_wifi.h"
 
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -155,6 +155,7 @@ static void simulacra_task(void *arg)
     }
     int ble_floor = fleet_pop_share(probe_desired_ble_floor());   // floor scales with the persona share
     if (ndev < ble_floor) ndev = ble_floor;                      // room for this node's personas + twins
+    if (ndev < (int)sim_settings_floor()) ndev = sim_settings_floor();   // and for the persona cap
     ble_devices_init(ndev, (uint32_t)(esp_timer_get_time() / 1000));  // population size; clamped to max
     // Create the persona registry HERE, on simulacra_task, BEFORE coexist_start spawns coexist_task
     // (task creation is a memory barrier). All phantom_lifecycle/sync_* thereafter run only on the
@@ -180,12 +181,18 @@ static void simulacra_task(void *arg)
 #if SIMULACRA_ESPNOW
     esp_now_link_start();   // listen-only responder; answers CYD requests over ESP-NOW
 #endif
-    vbat_init();            // fuel-gauge probe (no-op unless SIMULACRA_VBAT + I2C pins are configured)
+    vbat_init();            // battery sense; backend defaults per target (see vbat.c)
+    ESP_LOGW(TAG, "battery backend: %s%s", vbat_backend(),
+             vbat_present() ? "" : " (no cell detected)");   // "none" here = sense compiled out
     for (;;) {                                          // this task idles; coexist runs the show
         // Always-on crowd-diversity indicator: active count + distinct manufacturers + the
         // dominant company's share. A collapse to one vendor (the monoculture bug) shows here.
-        uint16_t ids[CHURN_ACTIVE_SET]; uint8_t cnt[CHURN_ACTIVE_SET]; uint8_t k = 0, tot = 0;
-        for (size_t s = 0; s < CHURN_ACTIVE_SET; s++) {
+        // Sample the WHOLE population, not the first CHURN_ACTIVE_SET slots. Slots [0, personas)
+        // are the persona-bound phones, so a truncated scan reported "companies=1" for a perfectly
+        // diverse crowd -- the audit line was blind to exactly the devices it exists to audit.
+        uint16_t ids[BLE_DEVICES_MAX]; uint8_t cnt[BLE_DEVICES_MAX]; uint8_t k = 0, tot = 0;
+        size_t pop = churn_active_count(); if (pop > BLE_DEVICES_MAX) pop = BLE_DEVICES_MAX;
+        for (size_t s = 0; s < pop; s++) {
             const identity_t *id = churn_active_at(s);
             if (!id) continue;
             tot++;
@@ -221,38 +228,13 @@ static void nimble_host_task(void *param)
     nimble_port_freertos_deinit();
 }
 
-// Seeed XIAO ESP32-C6 antenna switch: GPIO3 LOW enables the RF switch; GPIO14 selects the
-// antenna (LOW = onboard ceramic, HIGH = external U.FL). Must run before BLE start.
-// IMPORTANT: selecting external (HIGH) with no U.FL antenna attached degrades RF. Set
-// SIMULACRA_EXT_ANTENNA to 0 if running on the onboard antenna.
-// BOARD-SPECIFIC: GPIO3/GPIO14 are the XIAO C6's antenna-switch pins. Other ESP32-C6 boards
-// (e.g. the SparkFun Thing Plus C6, which selects its antenna with a hardware jumper) must NOT
-// drive them, so this is gated on SIMULACRA_BOARD_XIAO_C6 (default 0 = don't touch the pins).
-// Build for the XIAO C6 with -DSIMULACRA_BOARD_XIAO_C6=1 (and SIMULACRA_EXT_ANTENNA as needed).
-#ifndef SIMULACRA_BOARD_XIAO_C6
-#define SIMULACRA_BOARD_XIAO_C6 0
-#endif
-#if SIMULACRA_BOARD_XIAO_C6
-#ifndef SIMULACRA_EXT_ANTENNA
-#define SIMULACRA_EXT_ANTENNA 1   // 1 = external U.FL (fitted on this build), 0 = onboard ceramic
-#endif
-static void xiao_c6_select_antenna(void)
-{
-    gpio_reset_pin(GPIO_NUM_3);
-    gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_NUM_3, 0);                       // enable the RF switch (active low)
-    gpio_reset_pin(GPIO_NUM_14);
-    gpio_set_direction(GPIO_NUM_14, GPIO_MODE_OUTPUT);
-    gpio_set_level(GPIO_NUM_14, SIMULACRA_EXT_ANTENNA ? 1 : 0);  // 1 = external U.FL, 0 = onboard
-}
-#endif
+// Antenna selection is a hardware jumper on both supported boards (Waveshare ESP32-C5-WIFI6-KIT
+// and SparkFun Thing Plus C6), so the firmware drives no antenna-switch GPIOs. A board that needs
+// one selected in software (the retired Seeed XIAO C6 drove GPIO3/GPIO14) would add it here --
+// note that driving those pins on a board that does NOT have the switch is actively harmful.
 
 void app_main(void)
 {
-#if SIMULACRA_BOARD_XIAO_C6
-    xiao_c6_select_antenna();
-#endif
-
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());

@@ -34,6 +34,14 @@
 
 static ble_device_t s_dev[BLE_DEVICES_MAX];
 static int          s_n;
+// Churn acceleration: lifetimes are divided by this, so 3.0 = devices come and go 3x as fast.
+// 1.0 = the designed bands. Anti-entourage raises it on a drift spike and decays it back.
+static float        s_accel = 1.0f;
+// What the live devices' remaining lifetimes were last rescaled by. Tracked separately from
+// s_accel so a run of tiny setting changes still adds up to one correction (see set_accel).
+static float        s_accel_applied = 1.0f;
+#define ACCEL_MIN 1.0f
+#define ACCEL_MAX 8.0f
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
 
@@ -77,10 +85,23 @@ static void dev_spawn(ble_device_t *d, uint32_t now_ms)
     if (d->atype == BLE_ATYPE_STATIC && (esp_random() % 100u) < PERSISTENT_PCT_OF_STATIC) {
         d->role    = BLE_ROLE_PERSISTENT;
         d->life_ms = rnd_range(PERSISTENT_MIN_MS, PERSISTENT_MAX_MS);
+    } else if (d->atype == BLE_ATYPE_RPA) {
+        // RPA is always RESIDENT. Drawn into the transient band (2-12 min) an RPA device would
+        // usually die before its 10-20 min rotation deadline, presenting an address whose top two
+        // bits advertise "I rotate" while it demonstrably never does — an inverted signal. Forcing
+        // the long band is also the physically honest reading: RPA is phone/OS behaviour, and a
+        // beacon that appears for four minutes is not a phone. NRPA keeps the full role mix (it
+        // rotates every 1-10 min, so it rotates inside even a short life).
+        d->role    = BLE_ROLE_RESIDENT;
+        d->life_ms = rnd_range(RESIDENT_MIN_MS, RESIDENT_MAX_MS);
     } else {
         d->role    = (esp_random() % 100u < ROLE_RESIDENT_PCT) ? BLE_ROLE_RESIDENT : BLE_ROLE_TRANSIENT;
         d->life_ms = (d->role == BLE_ROLE_RESIDENT) ? rnd_range(RESIDENT_MIN_MS, RESIDENT_MAX_MS)
                                                     : rnd_range(TRANSIENT_MIN_MS, TRANSIENT_MAX_MS);
+    }
+    if (s_accel > 1.0f) {                           // accelerated churn: shorter lives, same shape
+        uint32_t l = (uint32_t)((float)d->life_ms / s_accel);
+        d->life_ms = l < 1000u ? 1000u : l;         // never below a second (would thrash the radios)
     }
     d->born_ms = now_ms;
     d->alive = true;
@@ -99,6 +120,66 @@ void ble_devices_init(int n, uint32_t now_ms)
 }
 
 int ble_devices_count(void) { return s_n; }
+
+// Live resize. Growing spawns fresh devices into the new slots (they are born now, so they join
+// the crowd on the normal arrival path rather than all appearing pre-aged); shrinking simply stops
+// presenting the high slots. Never shrinks below the highest persona-bound slot: phantom.c binds
+// persona i to slot i, and dropping a bound slot would strand a Wi-Fi agent with no BLE twin --
+// exactly the single-radio ghost cross-protocol personas exist to avoid.
+void ble_devices_set_count(int n, uint32_t now_ms)
+{
+    if (n > BLE_DEVICES_MAX) n = BLE_DEVICES_MAX;
+    int floor_n = 1;
+    for (int i = 0; i < s_n; i++) if (s_dev[i].persona_idx >= 0 && i + 1 > floor_n) floor_n = i + 1;
+    if (n < floor_n) n = floor_n;
+    for (int i = s_n; i < n; i++) dev_spawn(&s_dev[i], now_ms);
+    s_n = n;
+}
+
+// Release a slot from its persona: it becomes an ordinary unbound device again, respawned with a
+// fresh identity so it does not linger as a phone-shaped advertiser that ble_devices_tick will
+// never age out (the tick skips bound slots — a slot left bound to a persona that no longer exists
+// would advertise the same phone forever).
+void ble_device_unbind(int slot, uint32_t now_ms)
+{
+    if (slot < 0 || slot >= s_n) return;
+    if (s_dev[slot].persona_idx < 0) return;          // already unbound
+    dev_spawn(&s_dev[slot], now_ms);                  // clears persona_idx/gen, new addr + behaviour
+}
+
+// Set the churn acceleration and re-scale the remaining lifetime of every live UNBOUND device so
+// the change bites now instead of only reaching devices born later. Bound slots are skipped --
+// their lifetime belongs to the phantom, and stretching it would desynchronise the BLE twin from
+// its Wi-Fi agent.
+//
+// Rescaling by the RATIO of old to new makes this idempotent: repeated calls with the same value
+// are no-ops, and the anti-entourage decay (3.0 -> 1.0 in small steps, every tick for ~2 min)
+// stretches lifetimes smoothly back to normal instead of compounding.
+void ble_devices_set_accel(float mult, uint32_t now_ms)
+{
+    if (mult < ACCEL_MIN) mult = ACCEL_MIN;
+    if (mult > ACCEL_MAX) mult = ACCEL_MAX;
+    s_accel = mult;                                   // governs lifetimes drawn from here on
+    // Ratio is measured against what the LIVE lifetimes were last scaled by, not against the
+    // previous setting. The decay path calls this every 250 ms with a value that moves by ~0.4%,
+    // so comparing consecutive settings would let each step fall under the epsilon and be dropped
+    // while the setting marched 3.0 -> 1.0 — the crowd would keep the accelerated lifetimes
+    // forever. Against s_accel_applied the skipped fractions accumulate until they matter.
+    float ratio = s_accel_applied / mult;
+    if (ratio > 0.99f && ratio < 1.01f) return;       // not yet worth walking the array
+    s_accel_applied = mult;
+    for (int i = 0; i < s_n; i++) {
+        ble_device_t *d = &s_dev[i];
+        if (!d->alive || d->persona_idx >= 0) continue;
+        uint32_t elapsed = now_ms - d->born_ms;
+        if (elapsed >= d->life_ms) continue;                    // already due; let the tick reap it
+        uint32_t remain = (uint32_t)((float)(d->life_ms - elapsed) * ratio);
+        if (remain < 1000u) remain = 1000u;
+        d->life_ms = elapsed + remain;
+    }
+}
+
+float ble_devices_accel(void) { return s_accel; }
 const ble_device_t *ble_devices_at(int i) { return (i >= 0 && i < s_n) ? &s_dev[i] : 0; }
 
 void ble_devices_form_counts(uint8_t *restless, uint8_t *wandering, uint8_t *bound)
