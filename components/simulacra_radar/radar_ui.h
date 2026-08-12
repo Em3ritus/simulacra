@@ -10,7 +10,7 @@ typedef enum { RADAR_VIEW_HOME = 0, RADAR_VIEW_RADAR, RADAR_VIEW_DETAIL, RADAR_V
                RADAR_VIEW_NODE, RADAR_VIEW_THREAT,
                RADAR_VIEW_COUNT } radar_view_t;
 
-#define RADAR_CTRL_PRESET_COUNT 5
+#define RADAR_CTRL_PRESET_COUNT 6
 #define RADAR_CTRL_FLASH_MS     1200u
 
 typedef struct {
