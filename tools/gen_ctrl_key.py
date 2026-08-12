@@ -63,13 +63,19 @@ def write(path, text):
 
 def refuse_if_tracked(out_dir):
     """Never write a real secret into a path git is tracking — one `git commit -a` would publish
-    fleet control authority. sim_ctrl_sk.h is gitignored; if it is tracked again, stop."""
-    if os.path.abspath(out_dir) != REPO:
-        return
+    fleet control authority. sim_ctrl_sk.h is gitignored; if it is tracked again, stop.
+
+    Runs the check IN out_dir, not always REPO — a --out-dir into a different clone or a worktree
+    (e.g. .worktrees/<x>, its own checkout with its own index) needs its own tracked-path check;
+    the previous version of this guard only ever checked REPO and silently no-op'd for any other
+    --out-dir, so it protected everywhere except the one place a real deploy is likely to run from.
+    If out_dir isn't inside a git checkout at all, `git ls-files` just fails and there is nothing to
+    accidentally commit — same safe outcome as "not tracked"."""
     r = subprocess.run(["git", "ls-files", "--error-unmatch", SK_REL],
-                       cwd=REPO, capture_output=True, text=True)
+                       cwd=out_dir, capture_output=True, text=True)
     if r.returncode == 0:
-        sys.exit(f"error: {SK_REL} is TRACKED by git — writing a real secret there would publish it.\n"
+        sys.exit(f"error: {SK_REL} is TRACKED by git in {out_dir} — writing a real secret there "
+                 f"would publish it.\n"
                  f"  fix: git rm --cached {SK_REL}   (it is already listed in .gitignore)")
 
 
@@ -94,8 +100,9 @@ def main():
 
     # The secret is gitignored (and refuse_if_tracked() proved it is not tracked), so it cannot
     # be committed by accident. Confirm that out loud rather than relying on the operator's memory.
-    if not a.no_skip and os.path.abspath(a.out_dir) == REPO:
-        r = subprocess.run(["git", "check-ignore", "-q", SK_REL], cwd=REPO, capture_output=True)
+    # Checked in out_dir itself, same reasoning as refuse_if_tracked() above.
+    if not a.no_skip:
+        r = subprocess.run(["git", "check-ignore", "-q", SK_REL], cwd=a.out_dir, capture_output=True)
         print(f"  git: {SK_REL} is gitignored -- your secret stays local" if r.returncode == 0
               else f"  WARNING: {SK_REL} is NOT gitignored -- add it to .gitignore before committing")
 
