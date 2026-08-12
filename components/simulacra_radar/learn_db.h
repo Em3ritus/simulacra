@@ -9,7 +9,11 @@
 // HKDF-SHA256(ikm=psk[32], salt=NULL, info=LEARN_DB_LABEL) -> out_key[32].
 void learn_db_derive_key(const uint8_t psk[32], uint8_t out_key[32]);
 
-#define LEARN_DB_MAGIC   0x4C444231u   // "LDB1"
+// Named _FILE_ to avoid colliding with main/learn.h's LEARN_DB_MAGIC ("LRN1", the decoy's NVS
+// blob). They are different formats with different magics, but they shared one macro name, so any
+// translation unit including both headers silently took whichever came last -- a format mismatch
+// waiting to be introduced by an unrelated #include.
+#define LEARN_DB_FILE_MAGIC   0x4C444231u   // "LDB1" (Vigil SD-card library)
 #define LEARN_DB_FMT_VER 1
 #define LEARN_DB_MAX     1024          // Vigil archive ceiling
 

@@ -30,7 +30,7 @@ int learn_db_seal(uint8_t *out, size_t *out_len, const learned_template_t *recs,
 {
     if (count > LEARN_DB_MAX) return -1;
     learn_db_hdr_t *h = (learn_db_hdr_t *)out;
-    h->magic = LEARN_DB_MAGIC; h->version = LEARN_DB_FMT_VER; h->count = count;
+    h->magic = LEARN_DB_FILE_MAGIC; h->version = LEARN_DB_FMT_VER; h->count = count;
     esp_fill_random(h->nonce, sizeof h->nonce);
     size_t body = (size_t)count * sizeof(learned_template_t);
     uint8_t *ct = out + sizeof(learn_db_hdr_t);
@@ -53,7 +53,7 @@ int learn_db_open(const uint8_t *buf, size_t len, learned_template_t *recs,
 {
     if (len < sizeof(learn_db_hdr_t)) return -1;
     const learn_db_hdr_t *h = (const learn_db_hdr_t *)buf;
-    if (h->magic != LEARN_DB_MAGIC || h->version != LEARN_DB_FMT_VER) return -1;
+    if (h->magic != LEARN_DB_FILE_MAGIC || h->version != LEARN_DB_FMT_VER) return -1;
     if (h->count > LEARN_DB_MAX) return -1;
     size_t body = (size_t)h->count * sizeof(learned_template_t);
     if (len != sizeof(learn_db_hdr_t) + body) return -1;
