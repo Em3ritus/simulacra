@@ -88,7 +88,11 @@ Roles are selected at build time so one firmware tree serves every board.
   — drawn from a fixed pool of ubiquitous open SSIDs (xfinitywifi, attwifi, eduroam …), **never an
   observed or local one** — so the fake phones blend with the real phones probing the same hotspots.
 - On-device **self-learning** of ambient device *shapes* into new decoy archetypes (structure-only,
-  Law-3 gated), synced across the fleet and persisted to an **encrypted-at-rest** SD library on Vigil.
+  Law-3 gated), synced across the fleet and persisted to an AES-GCM-sealed SD library on Vigil — real
+  encryption, but currently keyed from a published, non-secret placeholder constant in the baked-key
+  regime, and (a gap being tracked, not yet fixed) from the same placeholder even in the provisioned
+  regime as of this writing. Impact is bounded — the library holds structure-only skeletons, no
+  bystander identities — but don't treat the SD card itself as sensitive yet.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
 - **Signed fleet control:** Vigil pushes Ed25519-signed behaviour presets (PAUSE / STEALTH /
   NORMAL / DENSE / MAX / **TURBO**) to every decoy over ESP-NOW — and the console shows which preset
@@ -98,7 +102,9 @@ Roles are selected at build time so one firmware tree serves every board.
   room-density matching — to raise the processing cost of whoever's watching. Manual-only, two-tap
   confirm on the console, sticky until changed.
 - **On-air fleet enrollment (ECDH):** decoys ship with no shared transport key and enroll on-air via
-  a mutually-authenticated 3-message handshake, so **capturing a decoy does not compromise the fleet.**
+  a mutually-authenticated 3-message handshake, so **a captured decoy can't forge commands or
+  impersonate the Vigil to other decoys.** It does end up holding the same shared fleet transport key
+  as every other member, though — see Security model below for what that key protects and doesn't.
 - **Vigil console:** an at-a-glance **protection posture** — one honest word for your current state
   (`CLOAKED` / `EXPOSED` when there's no crowd to hide in / `HUNTED` when a follower is confirmed /
   `DARK`) — plus a live radar/threat display, grouped status pages, a per-node fleet roster, and
@@ -114,6 +120,14 @@ Roles are selected at build time so one firmware tree serves every board.
   the public key. A captured decoy can verify commands but cannot forge them or control the fleet.
 - **Never trust the wire.** Every synced/seeded template is re-gated (budget + Law-3 + hash recompute)
   on receipt, so a leaked key or spoofed node still cannot inject a forbidden identity.
+- **The fleet transport key is shared and currently unencrypted at rest.** Every enrolled decoy holds
+  the same symmetric key that encrypts status/threat/learn-sync traffic on the mesh — this is what
+  lets nodes talk to each other and the Vigil at all, and it's a different key from the CONTROL
+  signing key above. No flash/NVS encryption is configured on any board, so a physically recovered
+  decoy's key is recoverable with `esptool read_flash`. **Revoke a lost or captured board immediately**
+  (fleet roster → REVOKE) — this rotates the whole fleet onto a new key and re-enrolls the survivors,
+  cutting the compromised board out. Until you do, treat a missing decoy as a live risk to the mesh's
+  confidentiality, not just a lost board.
 - **Structure-only learning.** Real-world captures are stripped to skeletons; no bystander identities
   or names are stored or emitted.
 - **Measured, not assumed.** A host-side audit suite compiles the *real* generator and scores how
