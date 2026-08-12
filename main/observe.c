@@ -30,12 +30,25 @@ static uint32_t    s_arrivals;     // new distinct hashes this window
 static bool        s_saturated;      // dedup table filled this sweep (distinct count truncated)
 static bool        s_last_saturated; // latched at sweep close, for logging/telemetry
 
+// s_tbl/s_arrivals/s_saturated/the rf_model_t passed in are written from observe_ingest() on the
+// NimBLE host task (via the GAP event callback) AND from observe_end_sweep() on coexist_task
+// (called from observe_maybe_close_sweep/observe_window_poll). WINDOW_DRAIN_MS is a timing
+// heuristic, not a guarantee that no host-task callback is still executing when a sweep closes --
+// a dense-BLE burst landing right at a window's close could interleave a partial write with
+// rf_model_end_sweep/decay, corrupting the density model that drives population-match. All three
+// rf_model_* functions this file calls (_observe/_end_sweep/_decay) are pure in-memory struct
+// mutation with no NVS/logging inside, so a tight spinlock critical section around each is safe
+// (no blocking call is ever made while held).
+static portMUX_TYPE s_obs_mux = portMUX_INITIALIZER_UNLOCKED;
+
 void observe_reset_ephemeral(uint32_t boot_salt)
 {
+    portENTER_CRITICAL(&s_obs_mux);
     memset(s_tbl, 0, sizeof(s_tbl));
-    s_salt = boot_salt;
     s_arrivals = 0;
     s_saturated = false;
+    portEXIT_CRITICAL(&s_obs_mux);
+    s_salt = boot_salt;   // read only from this same (coexist/init) task, no lock needed
 }
 
 uint32_t observe_hash_mac(const uint8_t mac[6])
@@ -50,6 +63,7 @@ void observe_ingest(rf_model_t *m, const uint8_t mac[6], uint32_t now_ms,
 {
     uint32_t h = observe_hash_mac(mac);    // MAC consumed here, never stored
     int32_t interval = -1;
+    portENTER_CRITICAL(&s_obs_mux);
     obs_entry_t *slot = NULL, *freep = NULL;
     for (size_t i = 0; i < OBS_TABLE_CAP; i++) {
         if (s_tbl[i].used && s_tbl[i].hash == h) { slot = &s_tbl[i]; break; }
@@ -65,10 +79,12 @@ void observe_ingest(rf_model_t *m, const uint8_t mac[6], uint32_t now_ms,
         s_saturated = true;                // full: still counted in the model, just not deduped
     }
     rf_model_observe(m, company_id, rssi, pdu_type, interval);
+    portEXIT_CRITICAL(&s_obs_mux);
 }
 
 void observe_end_sweep(rf_model_t *m, uint32_t window_ms)
 {
+    portENTER_CRITICAL(&s_obs_mux);
     uint32_t distinct = 0;
     for (size_t i = 0; i < OBS_TABLE_CAP; i++) if (s_tbl[i].used) distinct++;
     // Latch saturation before the wipe. A saturated sweep means `distinct` is a floor, not a count:
@@ -81,6 +97,7 @@ void observe_end_sweep(rf_model_t *m, uint32_t window_ms)
     memset(s_tbl, 0, sizeof(s_tbl));       // wipe ephemeral identifiers
     s_arrivals = 0;
     s_saturated = false;
+    portEXIT_CRITICAL(&s_obs_mux);
 #if SIMULACRA_LEARN
     // Advance the learn sweep (age-out + wipe transient candidates) and persist
     // the learned library periodically (debounced to spare NVS wear).

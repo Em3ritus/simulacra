@@ -2,6 +2,7 @@
 #include "detect.h"
 #include "nvs.h"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
 
 typedef struct {
     bool     used;
@@ -26,6 +27,17 @@ static bool           s_pending;
 static detect_threat_t s_pending_threat;
 static uint16_t       s_session;             // current boot-session id (escalation recurrence)
 
+// s_pending/s_pending_threat are written from credit_recurrence/promote/detect_note_known, all
+// only ever called from coexist_on_report (NimBLE host-task context, main/coexist.c), and read+
+// cleared by detect_drain_pending() on coexist_task. No lock meant a torn read of the
+// multi-byte detect_threat_t struct was possible if a confirmation landed mid-drain, and two
+// confirmations landing before a drain silently dropped the first one's NVS-persist trigger. Both
+// sides are cheap in-memory-only operations, safe under a tight spinlock. Scoped narrowly to this
+// hand-off, not the broader s_cand[]/s_threat[] tables those functions also touch -- those are a
+// separate, larger surface (also read from coexist_task via detect_threat_at/detect_threat_count)
+// that needs its own dedicated pass, not a blind lock-everything change here.
+static portMUX_TYPE s_pending_mux = portMUX_INITIALIZER_UNLOCKED;
+
 void detect_reset(void)
 {
     memset(s_cand, 0, sizeof(s_cand));
@@ -46,7 +58,9 @@ static void credit_recurrence(detect_threat_t *t, uint16_t epoch)
     if (t->last_session != s_session) {
         if (t->sessions_seen < 255) t->sessions_seen++;
         t->last_session = s_session;
+        portENTER_CRITICAL(&s_pending_mux);
         s_pending = true; s_pending_threat = *t;
+        portEXIT_CRITICAL(&s_pending_mux);
     }
     if (t->last_epoch != epoch && t->places_seen < 255) t->places_seen++;
 }
@@ -97,7 +111,9 @@ static detect_threat_t *promote(candidate_t *c)
     // KNOWN-only fields so it isn't mislabeled or wrongly targeted by KNOWN eviction.
     t->kind = DETECT_KIND_FOLLOWER; t->class_id = 0; t->category = 0; t->confidence = 0;
     t->sessions_seen = 1; t->places_seen = 1; t->last_session = s_session;   // escalation baseline
+    portENTER_CRITICAL(&s_pending_mux);
     s_pending = true; s_pending_threat = *t;   // hand off to the coordinator for NVS persist + LED
+    portEXIT_CRITICAL(&s_pending_mux);
     c->used = false;   // candidate graduates to a threat
     return t;
 }
@@ -169,7 +185,9 @@ detect_result_t detect_note_known(uint32_t hash, int8_t rssi, uint8_t class_id,
     t->hash = hash; t->best_rssi = rssi; t->first_epoch = epoch; t->last_epoch = epoch;
     t->kind = DETECT_KIND_KNOWN; t->class_id = class_id; t->category = category; t->confidence = confidence;
     t->sessions_seen = 1; t->places_seen = 1; t->last_session = s_session;   // escalation baseline
+    portENTER_CRITICAL(&s_pending_mux);
     s_pending = true; s_pending_threat = *t;
+    portEXIT_CRITICAL(&s_pending_mux);
     return DETECT_CONFIRM;
 }
 
@@ -229,10 +247,12 @@ void detect_clear_threats(void)
 
 bool detect_drain_pending(detect_threat_t *out)
 {
-    if (!s_pending) return false;
-    if (out) *out = s_pending_threat;
+    portENTER_CRITICAL(&s_pending_mux);
+    bool had = s_pending;
+    if (had && out) *out = s_pending_threat;
     s_pending = false;
-    return true;
+    portEXIT_CRITICAL(&s_pending_mux);
+    return had;
 }
 
 uint16_t detect_begin_session(void)
