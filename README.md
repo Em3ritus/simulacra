@@ -174,6 +174,7 @@ components/tweetnacl/     vendored TweetNaCl (Ed25519 / X25519)
 tools/pcap_learn/         replay a BLE capture through the real learn/detect pipeline
 tools/decoy_audit/        score how separable the BLE decoys are from a real crowd
 tools/probe_audit/        verify Wi-Fi probe frames are archetype-faithful and Law-3 safe
+tools/radar_audit/        verify the Vigil console's render/control/fleet-status logic on the host
 tools/seq_gate/           post-flash check that each fake phone's 802.11 sequence stays independent
 web/                      browser web-flasher (ESP Web Tools) — flash a starter fleet with no toolchain
 docs/                     design specs, implementation plans, hardware notes, and the roadmap
@@ -192,6 +193,10 @@ verified against the same source that runs on-device:
 - **`tools/probe_audit/`** — byte-exact verification that the Wi-Fi probe frames match real-phone
   archetypes, and that directed-SSID probes only ever name generic **public** networks from a fixed
   compiled-in pool — never one sourced from observed or local traffic.
+- **`tools/radar_audit/`** — compiles the Vigil console's own render/control/fleet-status code on the
+  host, so every screen (radar, node/threat detail, INFO console, CONTROL presets) and the fleet
+  aggregation logic (stale-node pruning, threat dedup, live-vs-pending preset) are verified against
+  the exact source that runs on the CYD.
 - **`tools/seq_gate/`** — a two-board post-flash gate confirming each fake phone keeps its own
   802.11 sequence counter after an IDF/toolchain bump.
 
