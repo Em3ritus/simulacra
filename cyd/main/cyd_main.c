@@ -818,10 +818,13 @@ static bool draw_enroll_overlay(uint16_t *band, uint32_t now){
 // The window is wide relative to the ~1s request cadence so an occasional lost
 // ESP-NOW broadcast (BLE+Wi-Fi coexist) doesn't flash a spurious "NO DECOY".
 static void draw_freshness_overlay(uint16_t *band, uint32_t now){
-    // s_status_ms is stamped by the ESP-NOW recv callback (a separate, higher-priority task) and
-    // can be a few ms AHEAD of this loop's cached `now` — the reply to the request we just sent
-    // lands before we draw. A plain unsigned (now - s_status_ms) then underflows to ~4.29e9 and
-    // paints a permanent spurious "NO DECOY". Compare signed so any not-in-the-past sample is fresh.
+    // s_status_ms is stamped inside handle_frame(), called synchronously from drain_rx() in this
+    // same UI loop (not from the ESP-NOW recv callback, which only copies into a ring buffer) --
+    // but it can still land a few ms AHEAD of this call's cached `now` if drain_rx() ran earlier
+    // in the same or a prior iteration. A plain unsigned (now - s_status_ms) would underflow to
+    // ~4.29e9 and paint a permanent spurious "NO DECOY". Compare signed so any not-in-the-past
+    // sample is fresh. (This comment previously described a cross-task hazard that no longer
+    // matches the code -- corrected 2026-08 audit; the underflow risk itself is still real.)
     if (s_status_ms != 0 && (int32_t)(now - s_status_ms) <= 15000) return;
     radar_gfx_t g = { .buf = band, .w = LCD_W, .y0 = 0, .h = 40 };
     radar_gfx_clear(&g, 0x0000);
@@ -1091,7 +1094,16 @@ void app_main(void)
             if (nvc == 0) {
                 bool s_fresh = (s_status_ms != 0 && (int32_t)(now - s_status_ms) <= 15000);
                 nv[0].id = 0; nv[0].st = &s_status; nv[0].alive = s_fresh;
-                nv[0].age_s = s_status_ms ? (now - s_status_ms) / 1000 : 0;
+                // Signed-clamped, matching fleet_status.c's node_age_ms() idiom: s_status_ms is
+                // only ever written synchronously ahead of this read today (see the comment where
+                // it's set), so a future-stamped value can't happen right now -- but this is the
+                // one age_s computation in this file that skipped the guard everyone else uses, and
+                // the guarantee is a call-order fact, not a type-level one. Cheap to make it
+                // provably safe rather than provably safe today.
+                {
+                    int32_t d = s_status_ms ? (int32_t)(now - s_status_ms) : 0;
+                    nv[0].age_s = (uint32_t)(d > 0 ? d : 0) / 1000;
+                }
                 nvc = 1;
             }
             // Record the strip ids HOME will draw (<=3), for the next frame's card-tap mapping.
