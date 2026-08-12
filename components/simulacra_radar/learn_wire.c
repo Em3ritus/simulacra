@@ -80,7 +80,7 @@ bool learn_merge_wire(learned_template_t *store, size_t *count, size_t cap,
 
 size_t learn_top_n(const learned_template_t *store, size_t count, learned_template_t *out, size_t n)
 {
-    size_t take = (count < n) ? count : n;
+    size_t take = (count < n) ? count : n, written = 0;
     bool used[256] = { false };                    // bounds selection to first 256 records
     for (size_t k = 0; k < take; k++) {
         int best = -1;
@@ -93,9 +93,10 @@ size_t learn_top_n(const learned_template_t *store, size_t count, learned_templa
         }
         if (best < 0) break;
         used[best] = true; out[k] = store[(size_t)best];
+        written++;
     }
-    return take;
-}
+    return written;   // NOT `take`: selection is capped at the first 256 records, so a larger
+}                     // store would otherwise report rows to the caller that were never written
 
 int learn_wire_pack(uint8_t *payload, size_t *plen, const learned_template_t *recs, uint8_t nrecs,
                     uint16_t lib_version, uint8_t chunk_index, uint8_t chunk_count)

@@ -40,8 +40,12 @@ static uint16_t     s_sweep;
 
 // ============================ identity-strip =============================
 
-static void mask_range(uint32_t *m, uint8_t from, uint8_t to)  // [from,to)
-{ for (uint8_t i = from; i < to && i < 31; i++) *m |= (1u << i); }
+// Returns the mask with [from,to) set, rather than writing through a pointer: rand_mask lives at
+// an unaligned offset inside a packed struct, so taking its address yields a misaligned uint32_t*
+// (-Waddress-of-packed-member). Passing and returning by value keeps the packed access confined to
+// the compiler-generated load/store at the call site, which it knows how to do safely.
+static uint32_t mask_range(uint32_t m, uint8_t from, uint8_t to)  // [from,to)
+{ for (uint8_t i = from; i < to && i < 31; i++) m |= (1u << i); return m; }
 
 bool learn_strip(const uint8_t *ad, uint8_t len, uint16_t company,
                  learned_template_t *out)
@@ -75,19 +79,19 @@ bool learn_strip(const uint8_t *ad, uint8_t len, uint16_t company,
                     // iBeacon: keep 4C 00 02 15 prefix, mask the rest
                     if (ad[vfrom] == 0x4C && ad[vfrom+1] == 0x00 &&
                         (vto - vfrom) >= 4 && ad[vfrom+2] == 0x02 && ad[vfrom+3] == 0x15)
-                        mask_range(&out->rand_mask, vfrom + 4, vto);
+                        out->rand_mask = mask_range(out->rand_mask, vfrom + 4, vto);
                     else
-                        mask_range(&out->rand_mask, vfrom + 2, vto);
+                        out->rand_mask = mask_range(out->rand_mask, vfrom + 2, vto);
                 } else return false;
                 break;
             case AD_SVCDATA16:
                 if (vto - vfrom >= 2) {
                     out->svc_uuid = (uint16_t)(ad[vfrom] | (ad[vfrom+1] << 8));
-                    mask_range(&out->rand_mask, vfrom + 2, vto);
+                    out->rand_mask = mask_range(out->rand_mask, vfrom + 2, vto);
                 } else return false;
                 break;
             default:                                      // unknown: keep shape, mask value
-                mask_range(&out->rand_mask, vfrom, vto);
+                out->rand_mask = mask_range(out->rand_mask, vfrom, vto);
                 break;
         }
         i += 1 + l;

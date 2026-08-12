@@ -62,7 +62,6 @@ static void roster_fill_from_templates(void)
         for (size_t k = 0; k < templates_count(); k++)
             if (template_at(k) == t) { id->archetype_idx = (uint8_t)k; break; }
         id->tx_power = 0;
-        id->state = ID_IDLE; id->active_until_ms = 0; id->eligible_at_ms = 0;
     }
 }
 
@@ -83,34 +82,9 @@ void roster_init(void)
     s_cursor = 0;
 }
 
-identity_t *roster_promote_candidate(uint32_t now_ms)
-{
-    for (size_t k = 0; k < CHURN_ROSTER_SIZE; k++) {
-        size_t i = (s_cursor + k) % CHURN_ROSTER_SIZE;
-        identity_t *id = &s_roster[i];
-        if (id->state == ID_IDLE ||
-            (id->state == ID_COOLDOWN && now_ms >= id->eligible_at_ms)) {
-            id->state = ID_IDLE;
-            s_cursor = (i + 1) % CHURN_ROSTER_SIZE;
-            return id;
-        }
-    }
-    return NULL;
-}
-
-size_t roster_count_in_state(id_state_t s)
-{
-    size_t n = 0;
-    for (size_t i = 0; i < CHURN_ROSTER_SIZE; i++) if (s_roster[i].state == s) n++;
-    return n;
-}
-
 identity_t *roster_at(size_t i) { return &s_roster[i]; }
 
-void roster_reseed_idle(const rf_model_t *m)
+void roster_reseed(const rf_model_t *m)
 {
-    for (size_t i = 0; i < CHURN_ROSTER_SIZE; i++) {
-        if (s_roster[i].state != ID_IDLE) continue;
-        generate_roster(m, &s_roster[i], 1);   // fills MAC/payload/itvl and sets state = ID_IDLE
-    }
+    generate_roster(m, s_roster, CHURN_ROSTER_SIZE);
 }

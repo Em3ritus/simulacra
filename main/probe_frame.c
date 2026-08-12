@@ -111,7 +111,10 @@ static void patch_ds_channel(uint8_t *body, uint16_t len, uint8_t ch)
     uint16_t i = 0;
     while (i + 2 <= len) {
         uint8_t id = body[i], ln = body[i + 1];
-        if (id == 0x03 && ln >= 1) { body[i + 2] = ch; return; }
+        if (id == 0x03 && ln >= 1) {
+            if (i + 2 >= len) return;              // truncated DS element: nothing to patch
+            body[i + 2] = ch; return;
+        }
         i += 2 + ln;
     }
 }

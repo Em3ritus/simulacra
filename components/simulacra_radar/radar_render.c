@@ -39,7 +39,7 @@ static uint16_t posture_color(radar_posture_t p){
            p==RADAR_POSTURE_DARK?COL_ASH:COL_CHANNEL;
 }
 
-static uint16_t threat_color(uint8_t ep){ return ep>=5?COL_HUNTER:(ep>=2?COL_WARD:COL_ARCANE); }
+__attribute__((unused)) static uint16_t threat_color(uint8_t ep){ return ep>=5?COL_HUNTER:(ep>=2?COL_WARD:COL_ARCANE); }
 static uint16_t escalation_color(detect_escalation_t e){
     return e==ESCALATION_PERSISTENT ? COL_HUNTER   // red   — a confirmed follower
          : e==ESCALATION_RECURRING  ? COL_WARD     // amber — seen across sessions

@@ -102,6 +102,14 @@ static detect_threat_t *promote(candidate_t *c)
     return t;
 }
 
+// COVERAGE LIMIT (state it wherever "THREAT confirmed" is surfaced): candidates are keyed on a
+// salted hash of the ADDRESS, so this heuristic only sees devices whose address is stable across
+// location epochs. Anything rotating an RPA -- modern phones, AirTags in unwanted-tracking mode,
+// most privacy-aware trackers -- gets a fresh hash each rotation and can never accumulate
+// DETECT_EPOCH_STRIKES. That is inherent to behavioural follower detection without cross-address
+// linkage, not a bug; the fingerprint path (detect_note_known, matching on payload shape) and the
+// surveillance-OUI path cover part of the gap. "No followers detected" therefore means "no
+// STATIC-addressed follower detected", and must never be presented as "you are not being followed".
 detect_result_t detect_observe(uint32_t hash, int8_t rssi, uint16_t vendor, uint16_t epoch)
 {
     if (!s_enabled) return DETECT_NONE;

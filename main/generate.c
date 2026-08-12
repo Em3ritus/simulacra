@@ -224,7 +224,6 @@ size_t generate_roster(const rf_model_t *m, identity_t *roster, size_t n)
         }
         id->company_id = company;
         id->tx_power = dither_tx();
-        id->state=ID_IDLE; id->active_until_ms=0; id->eligible_at_ms=0;
         if (id->payload_len) built++;
     }
     return built;
