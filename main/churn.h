@@ -36,6 +36,11 @@ uint32_t churn_apply_gen(void);
 // the coordinator decays it back to 1.0. Forwards to ble_devices_set_accel; idempotent.
 void   churn_set_accel(float mult);
 float  churn_accel(void);
+// Override how often the 4 HW adv slots are re-evaluated (normally CHURN_SLICE_MS = 1000 ms). This,
+// not per-device life_ms, is the real bottleneck on how fast NEW identities reach the air: shorter
+// device lifetimes are wasted if the slot presenting them isn't revisited fast enough to show them.
+// Floored at 50 ms. TURBO mode is the only caller that changes this away from the default.
+void   churn_set_slice_ms(uint32_t ms);
 void   churn_init(uint32_t now_ms);
 void   churn_tick(uint32_t now_ms);
 size_t churn_active_count(void);                 // non-NULL active slots

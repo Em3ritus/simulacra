@@ -75,6 +75,8 @@ static bool     s_wifi_allowed = true;    // webui: false defers Wi-Fi (STA) so 
 static uint32_t s_wifi_ctr;
 static uint32_t s_accel_until_ms;         // 0 = not accelerating
 static int      s_listen_ch = -1;         // espnow: >=0 -> park Wi-Fi on this channel between bursts to listen
+static bool     s_turbo;                  // TURBO preset active: every radio floods at hardware max
+#define COEX_TURBO_SLICE_MS 250u          // BLE presentation cadence while turbo (vs CHURN_SLICE_MS=1000)
 
 // --- M9 detection wiring ---
 #define DETECT_EPOCH_DRIFT 0.45f           // detection-owned; separate from anti-entourage thresh
@@ -104,6 +106,39 @@ static void coexist_drain_requests(void)
         ESP_LOGW(TAG, "control: threats cleared");
     } else if (sim_settings_apply_preset((sim_preset_t)req) == 0) {
         ESP_LOGW(TAG, "control: applied preset %d", req);
+    }
+}
+
+void coexist_set_turbo(bool on)
+{
+    if (on == s_turbo) return;                        // idempotent
+    s_turbo = on;
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    ble_devices_set_turbo(on, now);
+    probe_agents_set_turbo(on, now);
+    churn_set_slice_ms(on ? COEX_TURBO_SLICE_MS : CHURN_SLICE_MS);
+    if (on) {
+        // Bypasses the fleet-share ceiling directly: every board floods at its OWN hardware max,
+        // independent of room density or how many peers are heard. No persona coupling either --
+        // personas exist to defeat single-radio-ghost filtering (an indistinguishability
+        // mechanism), which is not the goal here, so release any currently bound.
+        ble_devices_set_count(BLE_DEVICES_MAX, now);
+        probe_agents_set_target(PROBE_AGENTS_MAX, now);
+        phantom_set_count(0, now);
+        ESP_LOGW(TAG, "TURBO: flooding at max (ble=%d wifi=%d)", BLE_DEVICES_MAX, PROBE_AGENTS_MAX);
+    } else {
+        // BLE already snaps back to the fleet-shared ceiling synchronously via
+        // sim_settings_apply's churn_set_active_target -> ble_devices_set_count (called before this,
+        // so ble_devices_count() below already reflects the new ceiling). Wi-Fi has no equivalent
+        // path: probe_agents_count() would otherwise stay at PROBE_AGENTS_MAX until the next
+        // reprofile (up to ~10 min), radiating a maxed, non-population-matched crowd after the
+        // operator told the node to stand down. Re-arm the glide's target now, using the same
+        // crowd/2 fleet-share cap the non-turbo Wi-Fi block computes every burst -- only the
+        // *target* is re-armed immediately; the glide keeps stepping down gradually.
+        int crowd = ble_devices_count();
+        int cap   = crowd / 2; if (cap < 1) cap = 1;
+        probe_agents_glide_set_target(cap, now);
+        ESP_LOGW(TAG, "TURBO: off, resuming normal population-match (wifi glide -> %d)", cap);
     }
 }
 
@@ -330,11 +365,17 @@ static void coexist_task(void *arg)
             if (k != s_last_k) {
                 if (s_last_k >= 0) ESP_LOGW(TAG, "fleet census %d -> %d nodes; resizing crowd", s_last_k, k);
                 s_last_k = k;
-                sim_settings_recalc_bounds();
+                if (!s_turbo) sim_settings_recalc_bounds();   // turbo's bounds aren't K-relative
             }
         }
         coexist_drain_requests();                       // control commands land here, not on the
         churn_tick(now);                                // caller's task (single-writer discipline)
+        if (s_turbo) {                                  // re-assert: a radio re-init (probe_pool_init
+            // on boot-restore or a WEBUI wifi re-enable) can silently reset either count while
+            // TURBO stays flagged on. Both calls are idempotent no-ops once at the ceiling.
+            if (ble_devices_count()  < BLE_DEVICES_MAX)  ble_devices_set_count(BLE_DEVICES_MAX, now);
+            if (probe_agents_count() < PROBE_AGENTS_MAX) probe_agents_set_target(PROBE_AGENTS_MAX, now);
+        }
         coexist_decay_accel();
         detect_threat_t nt;
         if (detect_drain_pending(&nt)) {                // persist a new confirmation off the BLE callback
@@ -359,27 +400,33 @@ static void coexist_task(void *arg)
         // window would steal antenna time from the BLE scan (on Ward a 5 GHz excursion stops BLE TX
         // outright) and the density we measure would come out low. Keep the measurement clean —
         // churn, the detector drain and threat persistence still run, which is the point.
-        if (d.fire_wifi && s_wifi_ok && s_wifi_allowed && !observe_window_active()) {
-            probe_agents_glide_tick(now);                             // ramp applied pop toward target
+        // s_turbo ORs into the gate: while turbo is active, fire on EVERY tick (COEX_TICK_MS = 250
+        // ms) rather than waiting for the persona's normal wifi_period_ms (2-7s). This is the real
+        // Wi-Fi throughput lever, the same way churn_set_slice_ms is the real BLE lever.
+        if ((d.fire_wifi || s_turbo) && s_wifi_ok && s_wifi_allowed && !observe_window_active()) {
             const uint8_t *ch24; size_t n24 = probe_channels_24(&ch24);
-            // The glide moves the Wi-Fi agent count to match room density; the persona registry
-            // must follow it. Personas beyond the agent count would advertise a phone on BLE that
-            // never probes on Wi-Fi, and agents beyond the persona count would have no BLE twin and
-            // no lifecycle here (probe_agents_lifecycle is SIMULACRA_PROBE-only), so they would
-            // never age out. Keeping the counts equal preserves the one-device-two-radios invariant.
-            // Personas may never fill the whole BLE crowd: a crowd that is 100% phone-shaped
-            // personas is a monoculture (every device company 0x0000, no beacons, no tags), which
-            // is a stronger tell than any single device. Cap them at half the population and pull
-            // the Wi-Fi agent set down to match, preserving the one-device-two-radios invariant.
-            int crowd = ble_devices_count();
-            int cap   = crowd / 2;  if (cap < 1) cap = 1;
-            if (probe_agents_count() > cap) probe_agents_set_target(cap, now);
-            phantom_set_count(probe_agents_count(), now);
-            phantom_sync_wifi(now);                                   // agents track persona lives
-            probe_agents_rotate_tick(now);        // intra-life MAC rotation (8-15 min): without this
-                                                  // a persona holds ONE Wi-Fi MAC for its whole life
-                                                  // while its BLE RPA rotates — the mismatch is the
-                                                  // tell. probe_agents_lifecycle is standalone-only.
+            if (!s_turbo) {
+                probe_agents_glide_tick(now);                         // ramp applied pop toward target
+                // The glide moves the Wi-Fi agent count to match room density; the persona registry
+                // must follow it. Personas beyond the agent count would advertise a phone on BLE
+                // that never probes on Wi-Fi, and agents beyond the persona count would have no BLE
+                // twin and no lifecycle here (probe_agents_lifecycle is SIMULACRA_PROBE-only), so
+                // they would never age out. Keeping the counts equal preserves the
+                // one-device-two-radios invariant. Personas may never fill the whole BLE crowd: a
+                // crowd that is 100% phone-shaped personas is a monoculture (every device company
+                // 0x0000, no beacons, no tags), which is a stronger tell than any single device.
+                // Cap them at half the population and pull the Wi-Fi agent set down to match.
+                // TURBO skips all of this -- it doesn't use personas at all (see coexist_set_turbo).
+                int crowd = ble_devices_count();
+                int cap   = crowd / 2;  if (cap < 1) cap = 1;
+                if (probe_agents_count() > cap) probe_agents_set_target(cap, now);
+                phantom_set_count(probe_agents_count(), now);
+                phantom_sync_wifi(now);                               // agents track persona lives
+            }
+            probe_agents_rotate_tick(now);        // intra-life MAC rotation: without this a persona
+                                                  // holds ONE Wi-Fi MAC for its whole life while its
+                                                  // BLE RPA rotates — the mismatch is the tell.
+                                                  // probe_agents_lifecycle is standalone-only.
             if (n24) probe_inject_burst(ch24[hop24++ % n24]);        // 2.4 GHz (coex-arbitrated)
             if (p->use_5g && (++s_wifi_ctr % COEX_5G_EVERY == 0)) coexist_5g_excursion();
         }
@@ -394,7 +441,7 @@ static void coexist_task(void *arg)
             s_wifi_obs_ok = wifi_obs_start();       // enable promiscuous once the STA/injection side is up
             s_wifi_obs_started = true;
         }
-        if (d.fire_reprofile) coexist_reprofile_start();
+        if (d.fire_reprofile && !s_turbo) coexist_reprofile_start();   // turbo owns its own population
         if (s_repro_active && observe_window_poll(now)) {           // window closed -> reshape
             s_repro_active = false;
             coexist_reprofile_finish(p);                            // BLE population-match (may early-return)

@@ -1,5 +1,6 @@
 #include "settings.h"
 #include "churn.h"
+#include "coexist.h"      // coexist_set_turbo(): the TURBO override lives at the coexist tick level
 #include "probe.h"        // probe_desired_ble_floor(): this board's designed crowd size
 #include "ble_devices.h"  // BLE_DEVICES_MAX
 #include "fleet_pop.h"    // fleet_pop_share(): this node's share when K nodes split the crowd
@@ -63,7 +64,7 @@ int sim_settings_resolve(sim_preset_t p, uint8_t floor, uint8_t ceiling, sim_set
 {
     if (p >= SIM_PRESET_COUNT) return -1;
     uint8_t stealth = (uint8_t)((ceiling * 4) / 10);   // ~40% of ceiling (raised to floor below)
-    sim_settings_t s = { .active_target = ceiling, .paused = false, .accel = 1.0f };
+    sim_settings_t s = { .active_target = ceiling, .paused = false, .accel = 1.0f, .turbo = false };
     switch (p) {
     case SIM_PRESET_PAUSE:                                  // NORMAL values, rotation frozen
         s.paused = true; break;
@@ -75,6 +76,13 @@ int sim_settings_resolve(sim_preset_t p, uint8_t floor, uint8_t ceiling, sim_set
         s.accel = 1.5f; break;                              // full crowd, 1.5x turnover
     case SIM_PRESET_MAX:
         s.accel = 2.5f; break;                              // full crowd, 2.5x turnover
+    case SIM_PRESET_TURBO:
+        // active_target/accel below are irrelevant once turbo=true: sim_settings_match_preset
+        // (below) short-circuits on the turbo flag alone. The REAL population/churn rate is forced
+        // directly by coexist_set_turbo (added in Task 5), bypassing the fleet-share floor/ceiling
+        // entirely -- every board floods at its own hardware max, not a room-density estimate
+        // divided across K nodes. That bypass is the whole point of the mode.
+        s.turbo = true; break;
     default: return -1;
     }
     sim_settings_clamp(&s, floor, ceiling);
@@ -87,6 +95,7 @@ void sim_settings_apply(const sim_settings_t *s)
     churn_set_active_target(s->active_target);
     churn_set_paused(s->paused);
     churn_set_accel(s->accel);
+    coexist_set_turbo(s->turbo);
     s_cur = *s;
 }
 
@@ -133,6 +142,12 @@ sim_preset_t sim_settings_match_preset(const sim_settings_t *cur, uint8_t floor,
     for (sim_preset_t p = SIM_PRESET_PAUSE; p < SIM_PRESET_COUNT; p++) {
         sim_settings_t r;
         if (sim_settings_resolve(p, floor, ceiling, &r) != 0) continue;
+        // Turbo is identified by the flag alone. While turbo is running, coexist_set_turbo forces
+        // the real population directly (bypassing floor/ceiling), so cur->active_target is NOT the
+        // fleet-shared value resolve() computed above -- requiring it to also match would always
+        // report CUSTOM instead of TURBO while the mode is genuinely active.
+        if (r.turbo != cur->turbo) continue;
+        if (cur->turbo) return p;
         if (r.active_target == cur->active_target && r.paused == cur->paused &&
             r.accel == cur->accel)
             return p;

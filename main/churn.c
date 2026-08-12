@@ -14,11 +14,13 @@ static churn_apply_fn s_apply;
 static bool     s_paused;                            // webui: pause the churn rotation
 static uint32_t s_now_ms;                            // last tick's clock; time source for the setters
 static uint32_t s_apply_gen;                         // bumped whenever the on-air set changes
+static uint32_t s_slice_ms = CHURN_SLICE_MS;          // presentation cadence; churn_set_slice_ms overrides
 
 void    churn_set_apply(churn_apply_fn fn) { s_apply = fn; }
 void    churn_set_paused(bool paused) { s_paused = paused; }
 bool    churn_paused(void) { return s_paused; }
 uint32_t churn_apply_gen(void) { return s_apply_gen; }
+void    churn_set_slice_ms(uint32_t ms) { s_slice_ms = ms < 50u ? 50u : ms; }
 
 void churn_init(uint32_t now_ms)
 {
@@ -33,7 +35,7 @@ void churn_tick(uint32_t now_ms)
     phantom_lifecycle(now_ms);      // advance persona births/deaths (single source of truth)
     phantom_sync_ble(now_ms);       // bound BLE slots co-appear/co-leave with their persona
     ble_devices_tick(now_ms);       // advance the unbound crowd (bound slots are skipped)
-    if (now_ms - s_last_slice_ms < CHURN_SLICE_MS) return;
+    if (now_ms - s_last_slice_ms < s_slice_ms) return;
     s_last_slice_ms = now_ms; s_phase++;
 
     int pop = ble_devices_count();

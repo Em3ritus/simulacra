@@ -176,12 +176,18 @@ static void draw_library(radar_gfx_t *g, const radar_lib_info_t *lib){
     else { snprintf(v,sizeof v,"%lus (%luB)",(unsigned long)lib->save_age_s,(unsigned long)lib->save_bytes);
            row_kv(g,y,"last save",v); }
 }
-static const char *CTRL_LABELS[5] = { "PAUSE", "STEALTH", "NORMAL", "DENSE", "MAX" };
-static const char *PRESET_DESC[5] = { "freeze on-air", "min crowd", "balanced", "big crowd", "max crowd" };
+// SIM_PRESET_TURBO; keep this in sync with the numeric order of sim_preset_t in main/settings.h --
+// this component does not (and should not) depend on main/, so the two stay in sync by convention
+// and by CTRL_LABELS' array position, same as every other preset here.
+#define CTRL_TURBO_PRESET 5
+static const char *CTRL_LABELS[RADAR_CTRL_PRESET_COUNT] =
+    { "PAUSE", "STEALTH", "NORMAL", "DENSE", "MAX", "TURBO" };
+static const char *PRESET_DESC[RADAR_CTRL_PRESET_COUNT] =
+    { "freeze on-air", "min crowd", "balanced", "big crowd", "max crowd", "flood the zone" };
 static const char *ctrl_preset_name(uint8_t p){
-    if (p < 5)     return CTRL_LABELS[p];
-    if (p == 5)    return "CUSTOM";
-    if (p == 0xFE) return "MIXED";
+    if (p < RADAR_CTRL_PRESET_COUNT)      return CTRL_LABELS[p];
+    if (p == RADAR_CTRL_PRESET_COUNT)     return "CUSTOM";
+    if (p == 0xFE)                        return "MIXED";
     return "-";                       // 0xFF none
 }
 static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
@@ -196,14 +202,15 @@ static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     radar_gfx_text(g, 20, 96, "PENDING", COL_ASH);
     radar_gfx_text(g, 20, 120, "<", COL_DIM);
     radar_gfx_text(g, 200, 120, ">", COL_DIM);
-    char box[16]; snprintf(box, sizeof box, "[ %s ]", CTRL_LABELS[sel % 5]);
+    char box[16]; snprintf(box, sizeof box, "[ %s ]", CTRL_LABELS[sel % RADAR_CTRL_PRESET_COUNT]);
     radar_gfx_text(g, 70, 120, box, COL_FG);
-    radar_gfx_text(g, 8, 152, PRESET_DESC[sel % 5], COL_DIM);
-    // SEND / SENT / ACTIVE
-    bool active = c && (c->live_preset == c->sel_preset) && (c->live_preset <= 4);
-    radar_gfx_fill_rect(g, 60, 205, 120, 34, COL_RING);      // SEND button
-    const char *slabel = (c && c->send_flash) ? "SENT" : active ? "ACTIVE" : "SEND";
-    uint16_t slc       = (c && c->send_flash) ? COL_OK  : active ? COL_DIM  : COL_FG;
+    radar_gfx_text(g, 8, 152, PRESET_DESC[sel % RADAR_CTRL_PRESET_COUNT], COL_DIM);
+    // SEND / SENT / ACTIVE / CONFIRM (TURBO pending + armed needs a second tap, like CLEAR THREATS)
+    bool active      = c && (c->live_preset == c->sel_preset) && (c->live_preset < RADAR_CTRL_PRESET_COUNT);
+    bool turbo_ask   = c && (sel % RADAR_CTRL_PRESET_COUNT == CTRL_TURBO_PRESET) && c->turbo_armed;
+    radar_gfx_fill_rect(g, 60, 205, 120, 34, turbo_ask ? COL_WARN : COL_RING);   // SEND button
+    const char *slabel = turbo_ask ? "CONFIRM?" : (c && c->send_flash) ? "SENT" : active ? "ACTIVE" : "SEND";
+    uint16_t slc       = turbo_ask ? COL_FG : (c && c->send_flash) ? COL_OK  : active ? COL_DIM  : COL_FG;
     radar_gfx_text(g, 96, 216, slabel, slc);
     // CLEAR THREATS button (2-tap arm/confirm; armed = red CONFIRM)
     bool armed = c && c->clear_armed;

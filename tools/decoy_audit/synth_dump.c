@@ -258,8 +258,10 @@ int main(int argc, char **argv) {
         int      ndev   = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 16;
         int      ticks  = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 4000;
         unsigned tickms = argc > 5 ? (unsigned)strtoul(argv[5], 0, 10) : 1000;
+        int      turbo  = argc > 6 && strcmp(argv[6], "turbo") == 0;
         srand(seed);
         roster_init();                                  // build the behaviour library (host: template fallback)
+        ble_devices_set_turbo(turbo != 0, 0);
         uint32_t t = 0;
         ble_devices_init(ndev, t);
         static uint8_t prev[BLE_DEVICES_MAX][6];
@@ -282,6 +284,44 @@ int main(int argc, char **argv) {
                     printf("D %u %d %s %s %s %s %u %u\n", (unsigned)t, i, hex, at, ro, ev,
                            (unsigned)d->id.company_id, (unsigned)d->id.adv_itvl_ms);
                     memcpy(prev[i], d->id.addr, 6); seen[i] = 1;
+                }
+            }
+        }
+        return 0;
+    }
+    // Regression guard for the I-1 fix: init normally (turbo off, so devices are born on the
+    // normal 30 min-12 h resident/persistent bands), run some ticks, THEN flip turbo on mid-run
+    // and keep ticking. Before the fix, pre-existing slots never respawned in this window because
+    // ble_devices_set_turbo only touched a flag read at spawn time; the fix rescales their
+    // remaining lifetime into the turbo band on the spot. Same "D ..." row format as --devices.
+    if (argc > 1 && strcmp(argv[1], "--devices-lateturbo") == 0) {
+        unsigned seed      = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int      ndev      = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 8;
+        int      pre_ticks = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 5;
+        int      post_ticks= argc > 5 ? (int)strtoul(argv[5], 0, 10) : 20;
+        unsigned tickms    = argc > 6 ? (unsigned)strtoul(argv[6], 0, 10) : 1000;
+        srand(seed);
+        roster_init();
+        uint32_t t = 0;
+        ble_devices_init(ndev, t);                      // turbo OFF: normal long-lived bands
+        static uint8_t prev[BLE_DEVICES_MAX][6];
+        static int     seen[BLE_DEVICES_MAX];
+        memset(seen, 0, sizeof seen);
+        for (int i = 0; i < ndev; i++) {                 // seed prev/seen with the initial birth
+            const ble_device_t *d = ble_devices_at(i);
+            memcpy(prev[i], d->id.addr, 6); seen[i] = 1;
+        }
+        for (int s = 0; s < pre_ticks; s++) { t += tickms; ble_devices_tick(t); }
+        ble_devices_set_turbo(true, t);                  // flip mid-run: the fix under test
+        for (int s = 0; s <= post_ticks; s++) {
+            if (s) t += tickms;
+            ble_devices_tick(t);
+            int cnt = ble_devices_count();
+            for (int i = 0; i < cnt; i++) {
+                const ble_device_t *d = ble_devices_at(i);
+                if (memcmp(prev[i], d->id.addr, 6) != 0) {
+                    printf("D %u %d born\n", (unsigned)t, i);
+                    memcpy(prev[i], d->id.addr, 6);
                 }
             }
         }

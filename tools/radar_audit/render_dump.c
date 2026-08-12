@@ -160,10 +160,11 @@ int main(int argc, char **argv)
         int live  = argc > a ? atoi(argv[a]) : 0xFF; a++;
         int flash = argc > a ? atoi(argv[a]) : 0; a++;
         int carm  = argc > a ? atoi(argv[a]) : 0; a++;
+        int tarm  = argc > a ? atoi(argv[a]) : 0; a++;
         radar_wire_status_t st; memset(&st, 0, sizeof st);
         radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
         ctrl.sel_preset = (uint8_t)sel; ctrl.live_preset = (uint8_t)live; ctrl.send_flash = flash != 0;
-        ctrl.clear_armed = carm != 0;
+        ctrl.clear_armed = carm != 0; ctrl.turbo_armed = tarm != 0;
         static uint16_t cband[240 * 320];
         radar_render_view(RADAR_VIEW_CONTROL, &st, 0, 0, -1, -1, 0, &ctrl, NULL, NULL, 0,
                           cband, 320, 240, 320, flush_noop, 0);

@@ -19,7 +19,7 @@ uint8_t sim_settings_floor(void);
 
 typedef enum {
     SIM_PRESET_PAUSE = 0, SIM_PRESET_STEALTH, SIM_PRESET_NORMAL,
-    SIM_PRESET_DENSE, SIM_PRESET_MAX, SIM_PRESET_COUNT
+    SIM_PRESET_DENSE, SIM_PRESET_MAX, SIM_PRESET_TURBO, SIM_PRESET_COUNT
 } sim_preset_t;
 
 // Every field here drives live behaviour — nothing is stored for display only. The CYD infers the
@@ -29,6 +29,8 @@ typedef struct {
     uint8_t  active_target;                       // concurrent phantom crowd size
     bool     paused;                              // freeze rotation (phantoms stay on-air)
     float    accel;                               // lifetime divisor: >1.0 = faster arrivals/departures
+    bool     turbo;                                // TURBO active: coexist_set_turbo owns the REAL
+                                                   // population/churn rate, bypassing floor/ceiling
 } sim_settings_t;
 
 // Pure: resolve preset p to concrete settings between `floor` and `ceiling`, already clamped.

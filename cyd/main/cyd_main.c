@@ -245,6 +245,8 @@ static uint32_t s_threat_hashes[RADAR_MAX_THREATS]; // hashes of the threats agg
 static int      s_threat_n;                          // how many of s_threat_hashes are valid
 static uint8_t  s_info_page;      // INFO view: 0 = system console, 1 = legend
 static uint32_t s_clear_arm_ms;   // CONTROL: CLEAR THREATS armed-at (0 = disarmed); 3s confirm window
+static uint32_t s_turbo_arm_ms;   // CONTROL: TURBO SEND armed-at (0 = disarmed); 3s confirm window
+#define CFG_PRESET_TURBO 5        // SIM_PRESET_TURBO; keep numeric value in sync with main/settings.h
 #ifdef SIMULACRA_FLOCK_FLOOD
 #define CYD_BUILD_TAG "cyd v2 flood"
 #else
@@ -917,13 +919,15 @@ void app_main(void)
 #ifdef SIMULACRA_FLEET_PROVISION
                 if (ty < 28) {                           // top FLEET ROSTER bar -> open roster
                     s_fleet_modal = true; s_fleet_sel = 0; s_fleet_scroll = 0; s_fleet_arm_ms = 0;
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;   // any other interaction disarms (M-5)
                     radar_ui_note_input(&ui, now);
                 } else
 #endif
                 if (ty < 40) {                           // top strip = BACK to HOME (drawn "< BACK")
-                    s_clear_arm_ms = 0;
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;
                     radar_ui_on_input(&ui, now);
                 } else if (ty >= 246) {                  // CLEAR THREATS band (2-tap arm/confirm)
+                    s_turbo_arm_ms = 0;
                     if (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000) {
                         send_config(CONFIG_CLEAR_THREATS);
                         radar_ctrl_mark_sent(&ui, now);
@@ -933,13 +937,24 @@ void app_main(void)
                     }
                 } else if (ty > 200 && tx > 60 && tx < 180) {   // SEND button
                     s_clear_arm_ms = 0;
-                    send_config(ui.sel_preset);
-                    radar_ctrl_mark_sent(&ui, now);
+                    if (ui.sel_preset == CFG_PRESET_TURBO) {   // 2-tap confirm: max RF output, fleet-wide
+                        if (s_turbo_arm_ms && (uint32_t)(now - s_turbo_arm_ms) < 3000) {
+                            send_config(ui.sel_preset);
+                            radar_ctrl_mark_sent(&ui, now);
+                            s_turbo_arm_ms = 0;
+                        } else {
+                            s_turbo_arm_ms = now;        // arm
+                        }
+                    } else {
+                        s_turbo_arm_ms = 0;
+                        send_config(ui.sel_preset);
+                        radar_ctrl_mark_sent(&ui, now);
+                    }
                 } else if (tx < 80) {                    // left zone: prev == cycle-around
-                    s_clear_arm_ms = 0;
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;
                     for (int i = 0; i < RADAR_CTRL_PRESET_COUNT - 1; i++) radar_ctrl_select_next(&ui);
                 } else if (tx > 160) {                   // right zone: next
-                    s_clear_arm_ms = 0;
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;
                     radar_ctrl_select_next(&ui);
                 } else {                                 // center (preset label) = stay put
                     radar_ui_note_input(&ui, now);
@@ -1059,7 +1074,8 @@ void app_main(void)
             radar_ctrl_info_t ctrl = { .sel_preset = ui.sel_preset,
                 .send_flash = (ui.send_flash_ms && (now - ui.send_flash_ms) < RADAR_CTRL_FLASH_MS),
                 .live_preset = agg.preset,
-                .clear_armed = (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000) };
+                .clear_armed = (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000),
+                .turbo_armed = (s_turbo_arm_ms && (uint32_t)(now - s_turbo_arm_ms) < 3000) };
             // HOME fleet-strip node view: one card per sender, fanned out from the fleet table.
             // Liveness comes from fleet_status_at (stale after FLEET_STATUS_STALE_MS). Until any
             // decoy is heard, show a single SILENT placeholder so HOME is never blank.
@@ -1103,7 +1119,16 @@ void app_main(void)
 #ifdef SIMULACRA_FLEET_PROVISION
             // The CONTROL page is static; re-rendering it every frame would re-flush the FLEET
             // bar over it each time and flicker. Redraw it only on change (preset / SEND / entry).
+            //
+            // The redraw guard originally tracked only sel_preset and send_flash -- neither changes
+            // when CLEAR THREATS or TURBO's SEND arms its 2-tap confirm, so the "CONFIRM?" label was
+            // computed correctly by the render function but never actually drawn: the CYD looked
+            // exactly like it had ignored the first tap, and only the SECOND tap (arriving within
+            // the 3s window) ever produced visible feedback -- appearing to fire on one tap with no
+            // confirm step at all. Found on real hardware; host tests calling radar_render_view
+            // directly with an explicit armed flag can't catch a caller that never re-invokes it.
             static int  cs_sel = -1; static bool cs_flash = false; static bool cs_shown = false;
+            static bool cs_clear_armed = false, cs_turbo_armed = false;
             if (modal_open){
                 draw_fleet_modal(band, now);
                 cs_shown = false;                            // force CONTROL redraw when the modal closes
@@ -1112,10 +1137,12 @@ void app_main(void)
                                    !(s_pending || now < s_pair_until_ms);   // no enroll banner active
                 if (ctrl_static){
                     bool flash = ctrl.send_flash;
-                    if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash){
+                    if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash ||
+                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed){
                         radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         draw_fleet_bar(band);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
+                        cs_clear_armed = ctrl.clear_armed; cs_turbo_armed = ctrl.turbo_armed;
                     }
                 } else {
                     cs_shown = false;                        // leaving CONTROL / enroll active -> redraw next entry
@@ -1136,12 +1163,24 @@ void app_main(void)
                 // CONTROL is static; redrawing it every loop blocks the loop on SPI flushes and
                 // starves the touch poll (short back-taps get missed). Redraw it only on change so
                 // the loop stays free to sample touch -> snappy back gesture.
+                //
+                // The redraw guard originally tracked only sel_preset and send_flash -- neither
+                // changes when CLEAR THREATS or TURBO's SEND arms its 2-tap confirm, so the
+                // "CONFIRM?" label was computed correctly by the render function but never actually
+                // drawn: the CYD looked exactly like it had ignored the first tap, and only the
+                // SECOND tap (arriving within the 3s window) ever produced visible feedback --
+                // appearing to fire on one tap with no confirm step at all. Found on real hardware;
+                // host tests calling radar_render_view directly with an explicit armed flag can't
+                // catch a caller that never re-invokes it.
                 static int cs_sel = -1; static bool cs_flash = false; static bool cs_shown = false;
+                static bool cs_clear_armed = false, cs_turbo_armed = false;
                 if (ui.view == RADAR_VIEW_CONTROL) {
                     bool flash = ctrl.send_flash;
-                    if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash) {
+                    if (!cs_shown || cs_sel != ui.sel_preset || cs_flash != flash ||
+                        cs_clear_armed != ctrl.clear_armed || cs_turbo_armed != ctrl.turbo_armed) {
                         radar_render_view(ui.view, &agg, nv, nvc, sel_idx, sel_threat, &lib, &ctrl, (ui.view==RADAR_VIEW_EXPOSURE?&s_expo:NULL), &sysinfo, sweep, band, 40, LCD_W, LCD_H, cyd_flush, NULL);
                         cs_sel = ui.sel_preset; cs_flash = flash; cs_shown = true;
+                        cs_clear_armed = ctrl.clear_armed; cs_turbo_armed = ctrl.turbo_armed;
                     }
                 } else {
                     cs_shown = false;                    // force a fresh CONTROL redraw on re-entry

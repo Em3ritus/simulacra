@@ -11,6 +11,10 @@
 #define IDLE_MAX_MS    180000u
 #define PERSONA_MAC_ROT_MIN_MS 480000u   // 8 min  (Wi-Fi MAC intra-life rotation, fast-realistic)
 #define PERSONA_MAC_ROT_MAX_MS 900000u   // 15 min
+// TURBO MAC rotation band -- placeholder pending the on-hardware tuning pass
+// (docs/superpowers/specs/2026-08-12-turbo-flood-mode-design.md, Open question).
+#define TURBO_MAC_ROT_MIN_MS 3000u    // 3 s
+#define TURBO_MAC_ROT_MAX_MS 8000u    // 8 s
 #define SSID_ASSIGN_PCT      62   // % of personas that get a named-SSID set (rest wildcard for life)
 #define SSID_BURST_NAMED_PCT 60   // for an assigned persona, % of bursts that name a network (on-air realism)
 #define GLIDE_STEP    1        // move the applied population one agent at a time (device-faithful)
@@ -24,7 +28,31 @@ static bool     s_glide_armed;        // false until the first glide_set_target 
 static uint32_t s_next_glide_ms;      // earliest time the next +/-1 step may apply
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
-static uint32_t persona_mac_rotate_base(void) { return rnd_range(PERSONA_MAC_ROT_MIN_MS, PERSONA_MAC_ROT_MAX_MS); }
+static bool     s_turbo = false;
+
+// Turning turbo ON also forces every already-live agent onto the turbo behaviour: an agent that
+// was DUTY_IDLE (30-180 s scan interval) or mid-way through its 8-15 min persona MAC-rotation
+// deadline would otherwise stay that way for the rest of the turbo session -- only fresh
+// spawns/reincarnations picked up turbo behaviour before this. No reverse pass on turbo-off: the
+// forced state simply stops being reasserted and the next natural rotation/rebirth takes over.
+void probe_agents_set_turbo(bool on, uint32_t now_ms)
+{
+    s_turbo = on;
+    if (!on) return;
+    for (int i = 0; i < s_n; i++) {
+        probe_agent_t *a = &s_agents[i];
+        if (!a->alive) continue;
+        a->duty = DUTY_ACTIVE;
+        a->next_mac_rotate_ms = now_ms + rnd_range(TURBO_MAC_ROT_MIN_MS, TURBO_MAC_ROT_MAX_MS);
+    }
+}
+// The MAC rotation interval, on whichever band is active. Renamed from persona_mac_rotate_base:
+// it now serves both the persona band (unchanged) and the turbo band, not personas exclusively.
+static uint32_t mac_rotate_base(void)
+{
+    return s_turbo ? rnd_range(TURBO_MAC_ROT_MIN_MS, TURBO_MAC_ROT_MAX_MS)
+                   : rnd_range(PERSONA_MAC_ROT_MIN_MS, PERSONA_MAC_ROT_MAX_MS);
+}
 
 // Draw this persona's saved-network set ONCE (called only from birth sites). ~SSID_ASSIGN_PCT of
 // personas get 1..AGENT_SSID_MAX distinct pool entries; the rest stay wildcard-only for their life.
@@ -49,14 +77,17 @@ static void agent_spawn(probe_agent_t *a, uint32_t now_ms)
     probe_random_mac(a->mac);
     a->arch    = probe_pick_archetype();
     a->seq     = (uint16_t)(esp_random() & 0x0FFFu);             // fresh random 12-bit base
-    a->duty    = (esp_random() % 3u == 0u) ? DUTY_ACTIVE : DUTY_IDLE;  // ~33% active
+    // TURBO: always active, no idle 67% -- maximum burst frequency.
+    a->duty    = s_turbo ? DUTY_ACTIVE : ((esp_random() % 3u == 0u) ? DUTY_ACTIVE : DUTY_IDLE);
     a->born_ms = now_ms;
     a->life_ms = rnd_range(LIFE_MIN_MS, LIFE_MAX_MS);
     a->alive   = true;
-    uint32_t base = (a->duty == DUTY_ACTIVE) ? rnd_range(ACTIVE_MIN_MS, ACTIVE_MAX_MS)
+    // TURBO: floored to the fastest existing band rather than randomized within it.
+    uint32_t base = s_turbo ? ACTIVE_MIN_MS
+                  : (a->duty == DUTY_ACTIVE) ? rnd_range(ACTIVE_MIN_MS, ACTIVE_MAX_MS)
                                              : rnd_range(IDLE_MIN_MS, IDLE_MAX_MS);
     a->next_scan_ms = now_ms + (esp_random() % base);            // random phase-in (not all due at once)
-    a->next_mac_rotate_ms = now_ms + persona_mac_rotate_base();
+    a->next_mac_rotate_ms = now_ms + mac_rotate_base();
     assign_ssids(a);
 }
 
@@ -97,7 +128,7 @@ int probe_agents_rotate_tick(uint32_t now_ms)
         if (a->alive && (int32_t)(now_ms - a->next_mac_rotate_ms) >= 0) {
             probe_random_mac(a->mac);
             a->seq = (uint16_t)(esp_random() & 0x0FFFu);
-            a->next_mac_rotate_ms = now_ms + persona_mac_rotate_base();
+            a->next_mac_rotate_ms = now_ms + mac_rotate_base();
             rotated++;
         }
     }
@@ -153,7 +184,7 @@ int probe_agent_sync(int i, probe_arch_t arch, uint32_t born_ms, uint32_t life_m
     uint32_t base  = (a->duty == DUTY_ACTIVE) ? rnd_range(ACTIVE_MIN_MS, ACTIVE_MAX_MS)
                                               : rnd_range(IDLE_MIN_MS, IDLE_MAX_MS);
     a->next_scan_ms = born_ms + (esp_random() % base);
-    a->next_mac_rotate_ms = born_ms + persona_mac_rotate_base();
+    a->next_mac_rotate_ms = born_ms + mac_rotate_base();
     assign_ssids(a);
     return 1;
 }
