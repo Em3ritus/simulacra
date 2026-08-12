@@ -62,6 +62,11 @@ uint8_t probe_agent_pick_ssid(const probe_agent_t *a, char *out, uint8_t outmax)
 // glide's step arithmetic, isolated from the jitter clock so it is directly unit-testable.
 int probe_glide_next(int current, int target, int step);
 
+// TURBO mode: freshly spawned agents are forced DUTY_ACTIVE with the scan interval floored to
+// ACTIVE_MIN_MS, and MAC rotation (agent_spawn's initial schedule AND probe_agents_rotate_tick)
+// uses a much shorter band than the normal 8-15 min persona band. Idempotent; off by default.
+void probe_agents_set_turbo(bool on);
+
 // Record the desired applied population. The FIRST call after probe_agents_init applies immediately
 // (boot-instant, no ramp); later calls only record it — probe_agents_glide_tick ramps toward it by
 // GLIDE_STEP per jittered per-node interval. now_ms seeds/advances the glide clock.

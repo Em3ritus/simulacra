@@ -37,6 +37,27 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+    // TURBO mode: unbound agents (no persona binding), MAC rotation only, on the fast turbo band
+    // instead of the 8-15 min persona band. Guard against the mode ever silently reverting to the
+    // slow band.
+    if (argc > 1 && strcmp(argv[1], "--turborot") == 0) {
+        unsigned seed   = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int      ticks  = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 20;
+        unsigned tickms = argc > 4 ? (unsigned)strtoul(argv[4], 0, 10) : 1000;
+        srand(seed);
+        probe_agents_set_turbo(1);
+        probe_agents_set_target(1, 0);
+        char last[13] = "";
+        uint32_t t = 0;
+        for (int s = 0; s <= ticks; s++) {
+            if (s) t += tickms;
+            probe_agents_rotate_tick(t);
+            const probe_agent_t *a = probe_agents_at(0);
+            char hex[13]; for (int b = 0; b < 6; b++) sprintf(hex + b * 2, "%02x", a->mac[b]);
+            if (strcmp(hex, last) != 0) { printf("%u %s\n", (unsigned)t, hex); strcpy(last, hex); }
+        }
+        return 0;
+    }
     // Drives EXACTLY the call sequence coexist_task uses in the shipped combined build --
     // phantom_lifecycle + phantom_sync_wifi + probe_agents_rotate_tick, and deliberately NOT
     // probe_agents_lifecycle (that runs only under SIMULACRA_PROBE). --agentrot passes even when
