@@ -1,7 +1,26 @@
 #include "fleet_status.h"
 #include <string.h>
 
+// Age of a record, guarding against a timestamp from the FUTURE.
+//
+// The caller samples `now` once per UI frame, but records get stamped later within that same frame
+// (the ESP-NOW RX drain runs mid-loop), so last_ms can legitimately exceed now by a few ms. Plain
+// unsigned subtraction turns that into ~49 days, so every node that had *just* reported read as
+// STALE: the fleet aggregate emptied to 0 devices / 0 threats for one frame every second, and the
+// display flipped RADAR -> HOME -> RADAR continuously. Treat a future stamp as age zero.
+static uint32_t node_age_ms(uint32_t now_ms, uint32_t last_ms)
+{
+    int32_t d = (int32_t)(now_ms - last_ms);
+    return d < 0 ? 0u : (uint32_t)d;
+}
+
 void fleet_status_reset(fleet_status_t *f){ memset(f, 0, sizeof(*f)); }
+
+void fleet_status_forget(fleet_status_t *f, uint8_t node_id)
+{
+    for (int i = 0; i < FLEET_STATUS_MAX; i++)
+        if (f->nodes[i].used && f->nodes[i].id == node_id) { memset(&f->nodes[i], 0, sizeof f->nodes[i]); return; }
+}
 
 void fleet_status_upsert(fleet_status_t *f, uint8_t node_id, const radar_wire_status_t *st, uint32_t now_ms)
 {
@@ -18,6 +37,13 @@ void fleet_status_upsert(fleet_status_t *f, uint8_t node_id, const radar_wire_st
     }   // table full: drop (v1 fleet <= FLEET_STATUS_MAX)
 }
 
+void fleet_status_prune(fleet_status_t *f, uint32_t now_ms, uint32_t max_age_ms)
+{
+    for (int i = 0; i < FLEET_STATUS_MAX; i++)
+        if (f->nodes[i].used && node_age_ms(now_ms, f->nodes[i].last_ms) >= max_age_ms)
+            memset(&f->nodes[i], 0, sizeof f->nodes[i]);
+}
+
 int fleet_status_count(const fleet_status_t *f)
 { int n = 0; for (int i = 0; i < FLEET_STATUS_MAX; i++) if (f->nodes[i].used) n++; return n; }
 
@@ -30,7 +56,7 @@ bool fleet_status_at(const fleet_status_t *f, int i, uint8_t *id,
         if (seen++ != i) continue;
         if (id) *id = f->nodes[k].id;
         if (st) *st = &f->nodes[k].st;
-        if (alive) *alive = (uint32_t)(now_ms - f->nodes[k].last_ms) < FLEET_STATUS_STALE_MS;
+        if (alive) *alive = node_age_ms(now_ms, f->nodes[k].last_ms) < FLEET_STATUS_STALE_MS;
         return true;
     }
     return false;
@@ -42,7 +68,7 @@ uint32_t fleet_status_age_ms(const fleet_status_t *f, int i, uint32_t now_ms)
     for (int k = 0; k < FLEET_STATUS_MAX; k++) {
         if (!f->nodes[k].used) continue;
         if (seen++ != i) continue;
-        return (uint32_t)(now_ms - f->nodes[k].last_ms);
+        return node_age_ms(now_ms, f->nodes[k].last_ms);
     }
     return 0;
 }
@@ -57,7 +83,7 @@ void fleet_status_aggregate(const fleet_status_t *f, uint32_t now_ms, radar_wire
     for (int i = 0; i < FLEET_STATUS_MAX; i++) {
         const fleet_node_t *nd = &f->nodes[i];
         if (!nd->used) continue;
-        if ((uint32_t)(now_ms - nd->last_ms) >= FLEET_STATUS_STALE_MS) continue;   // alive nodes only
+        if (node_age_ms(now_ms, nd->last_ms) >= FLEET_STATUS_STALE_MS) continue;   // alive nodes only
         const radar_wire_status_t *st = &nd->st;
         if (agg_preset == -1)              agg_preset = st->preset;   // first alive node
         else if (agg_preset != st->preset) agg_preset = 0xFE;         // disagreement -> MIXED

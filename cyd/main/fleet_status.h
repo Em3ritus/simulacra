@@ -13,6 +13,16 @@ typedef struct { uint8_t id; radar_wire_status_t st; uint32_t last_ms; bool used
 typedef struct { fleet_node_t nodes[FLEET_STATUS_MAX]; } fleet_status_t;
 
 void   fleet_status_reset(fleet_status_t *f);
+// Drop one node's record, because its id is being recycled for a DIFFERENT device. Without this the
+// new occupant inherits the departed node's decoy/threat counts until its own status lands.
+void   fleet_status_forget(fleet_status_t *f, uint8_t node_id);
+// Drop records silent for longer than max_age_ms. Nodes are keyed by a MAC the decoys re-randomise
+// every boot, so a reboot or reflash leaves the old identity behind as a permanently SILENT record.
+// Those never expired: they occupied slots in a 4-entry table of which HOME can only draw 3, so a
+// dead entry in an early slot pushed a LIVE node off the display -- a board that looked like it had
+// dropped off while it was still meshing. Should be well above FLEET_STATUS_STALE_MS so a briefly
+// quiet node still shows as SILENT rather than vanishing.
+void   fleet_status_prune(fleet_status_t *f, uint32_t now_ms, uint32_t max_age_ms);
 void   fleet_status_upsert(fleet_status_t *f, uint8_t node_id, const radar_wire_status_t *st, uint32_t now_ms);
 int    fleet_status_count(const fleet_status_t *f);                       // used slots
 bool   fleet_status_at(const fleet_status_t *f, int i, uint8_t *id,

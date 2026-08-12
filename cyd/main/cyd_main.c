@@ -146,16 +146,97 @@ static const uint8_t BCAST[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 static radar_wire_status_t s_status;             // last good status (any node — legacy single-node views)
 static volatile uint32_t   s_status_ms;          // when it arrived (0 = never)
 static fleet_status_t      s_fleet;              // per-node status table, keyed by sender (HOME strip)
-static uint8_t s_node_mac[FLEET_STATUS_MAX][6];  // first-seen MAC registry -> stable small node id
-static int     s_node_n;
-// Map a sender MAC to a stable 0-based node id (label N0/N1/N2...). Registry full -> fold onto N0.
-static uint8_t node_id_for(const uint8_t *mac){
-    for (int i = 0; i < s_node_n; i++) if (memcmp(s_node_mac[i], mac, 6) == 0) return (uint8_t)i;
-    if (s_node_n < FLEET_STATUS_MAX){ memcpy(s_node_mac[s_node_n], mac, 6); return (uint8_t)s_node_n++; }
-    return 0;
+static uint8_t  s_node_mac[FLEET_STATUS_MAX][6]; // MAC registry -> stable small node id
+static uint32_t s_node_seen[FLEET_STATUS_MAX];   // last time each registry slot was heard from
+static int      s_node_n;
+
+// Map a sender MAC to a small node id (label N0/N1/N2...).
+//
+// The registry MUST recycle. Decoys randomise their ESP-NOW source MAC on every boot (deliberate:
+// a fixed control-plane MAC would be a fleet fingerprint), so each reboot or reflash of a node
+// consumes a fresh slot. This registry previously never released one and folded every later node
+// onto N0 once full -- so after four decoy reboots the whole fleet collapsed onto a single record,
+// three nodes' statuses overwrote each other in turn, and the aggregate threat count flipped
+// 8 -> 0 -> 8 with every frame. That drove wake-on-follower into idle-return repeatedly: the
+// display flipped between RADAR and HOME several times a second.
+//
+// Recycling the least-recently-heard slot is safe because a node that stopped reporting is either
+// gone or has rebooted under a new MAC; either way its old identity is dead.
+static uint8_t node_id_for(const uint8_t *mac, uint32_t now_ms){
+    for (int i = 0; i < s_node_n; i++)
+        if (memcmp(s_node_mac[i], mac, 6) == 0) { s_node_seen[i] = now_ms; return (uint8_t)i; }
+    if (s_node_n < FLEET_STATUS_MAX){
+        memcpy(s_node_mac[s_node_n], mac, 6);
+        s_node_seen[s_node_n] = now_ms;
+        return (uint8_t)s_node_n++;
+    }
+    int oldest = 0;
+    for (int i = 1; i < FLEET_STATUS_MAX; i++)
+        if ((uint32_t)(now_ms - s_node_seen[i]) > (uint32_t)(now_ms - s_node_seen[oldest])) oldest = i;
+    memcpy(s_node_mac[oldest], mac, 6);
+    s_node_seen[oldest] = now_ms;
+    fleet_status_forget(&s_fleet, (uint8_t)oldest);   // don't inherit the departed node's counts
+    ESP_LOGW(TAG, "node registry full -> recycled N%d for a new sender", oldest);
+    return (uint8_t)oldest;
 }
 static radar_replay_t      s_replay;
-static uint8_t  s_salt[4]; static uint64_t s_ctr;
+static uint8_t  s_salt[RADAR_SALT_LEN]; static uint64_t s_ctr;
+
+// Frame counters must never restart: decoys gate CONFIG on a monotonic floor they persist across
+// reboots, so a Vigil that resumed from 1 would have every command rejected as stale. Reserve a
+// block of counter values in NVS at boot and spend it from RAM — one flash write per boot instead
+// of one per frame. Counters are public (they ride in the nonce); only monotonicity matters.
+#define CTR_NVS_NS    "vigil"
+#define CTR_NVS_KEY   "tx_ctr"
+// Wire v3 carries the counter in 4 bytes, so the whole space is 2^32 and a block must be small
+// enough that boots do not exhaust it: 1e5 per boot is ~2 days of telemetry before a re-reservation
+// and ~43,000 boots' worth in total (and, since blocks are only consumed as frames are sent,
+// ~272 years of continuous operation).
+#define CTR_BLOCK     100000ULL
+#define CTR_MAX       0xFFFFFFFFULL   // counter is 4 bytes on the wire (see make_nonce)
+
+static uint64_t s_ctr_limit;          // end of the reserved block; exhausting it reserves another
+
+static void ctr_reserve_block(void){
+    nvs_handle_t h;
+    if (nvs_open(CTR_NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        s_ctr_limit = UINT64_MAX;        // no NVS: fall back to per-boot counters. Decoys that
+        ESP_LOGE(TAG, "ctr: NVS unavailable — CONFIG may be rejected as stale after a reboot");
+        return;                          // already hold a higher floor will reject CONFIG.
+    }
+    uint64_t base = 0;
+    nvs_get_u64(h, CTR_NVS_KEY, &base);              // absent -> 0 on first ever boot
+    if (base < s_ctr) base = s_ctr;                  // never hand back a value already spent
+    s_ctr = base;
+    s_ctr_limit = base + CTR_BLOCK;
+    if (s_ctr_limit > CTR_MAX) s_ctr_limit = CTR_MAX;
+    if (nvs_set_u64(h, CTR_NVS_KEY, s_ctr_limit) == ESP_OK) nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGW(TAG, "ctr: reserved [%llu, %llu)", (unsigned long long)base,
+             (unsigned long long)s_ctr_limit);
+}
+
+// The only source of outbound frame counters. Strictly increasing within a boot and across
+// reboots (see ctr_reserve_block).
+static bool s_ctr_dead;   // counter space exhausted: refuse to seal rather than reuse a nonce
+
+// Returns false once the counter is exhausted. Callers MUST NOT seal a frame in that case:
+// repeating a (salt, counter) pair under the same key is a GCM nonce reuse, which leaks the XOR of
+// the two plaintexts and the GHASH authentication key -- i.e. it hands out forgery. Redrawing the
+// salt would restore nonce safety but not monotonicity, so the decoys' persisted CONFIG floor would
+// reject every later command; the correct recovery is re-keying the fleet. At telemetry rates this
+// is ~272 years away, so refusing to transmit is the right trade against silently breaking GCM.
+static bool next_ctr(uint64_t *out){
+    if (s_ctr_dead) return false;
+    if (s_ctr + 1 >= s_ctr_limit) ctr_reserve_block();   // block spent -> take the next one
+    if (s_ctr + 1 >= CTR_MAX) {
+        s_ctr_dead = true;
+        ESP_LOGE(TAG, "ctr: counter space exhausted -- re-key the fleet (tools/gen_ctrl_key.py)");
+        return false;
+    }
+    *out = ++s_ctr;
+    return true;
+}
 static uint8_t s_sel_node;        // NODE view: id of the node being inspected
 static uint8_t s_home_ids[3];     // ids of the (<=3) node cards HOME last rendered, left->right
 static int     s_home_n;          // how many of s_home_ids are valid
@@ -331,8 +412,9 @@ static void broadcast_sig_db(void)
         uint8_t pl[RADAR_FRAME_MAX]; size_t plen;
         if (sig_wire_pack(pl, &plen, &s_sigdb[off], nrec, s_sigdb_ver, ci, chunks) != 0) continue;
         uint8_t frame[RADAR_FRAME_MAX]; size_t flen;
+        uint64_t ctr; if (!next_ctr(&ctr)) return;
         if (radar_wire_seal(frame, &flen, RADAR_TYPE_SIG_SYNC, pl, plen,
-                            tx_key(), s_salt, ++s_ctr) == 0)
+                            tx_key(), s_salt, ctr) == 0)
             esp_now_send(BCAST, frame, flen);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -340,7 +422,10 @@ static void broadcast_sig_db(void)
              (unsigned)s_sigdb_ver, (unsigned)s_sigdb_n, (unsigned)chunks);
 }
 
-static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len){
+// Full frame processing. Runs on the UI loop, not in the ESP-NOW receive callback: it opens
+// AES-GCM and mutates the learn library / fleet table that the renderer reads. `src` is copied
+// from the recv info by the callback (NULL-safe: an all-zero MAC just maps to node 0).
+static void handle_frame(const uint8_t *data, int len, const uint8_t src[6]){
 #ifdef SIMULACRA_FLEET_PROVISION
     if (len >= 1 && data[0] == RADAR_TYPE_ENROLL_REQUEST) {   // raw (unsealed) enrollment reply
         if (s_pair_until_ms && (uint32_t)(esp_timer_get_time()/1000) < s_pair_until_ms
@@ -350,16 +435,19 @@ static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int le
         return;
     }
 #endif
-    uint8_t type, pl[RADAR_FRAME_MAX], salt[4]; size_t plen; uint64_t ctr;
-    if (radar_wire_open(data,(size_t)len,tx_key(),&type,pl,&plen,salt,&ctr)!=0) return;
+    if (len < 0) return;                                   // driver contract; guards the cast
+    uint8_t type, pl[RADAR_FRAME_MAX], salt[RADAR_SALT_LEN]; size_t plen; uint64_t ctr;
+    // sizeof pl bounds the pre-auth plaintext write: an ESP-NOW v2 frame (up to 1470 B) would
+    // otherwise overflow this stack buffer before the tag is ever checked.
+    if (radar_wire_open(data,(size_t)len,tx_key(),&type,pl,sizeof pl,&plen,salt,&ctr)!=0) return;
     if (type==RADAR_TYPE_STATUS && plen==sizeof(radar_wire_status_t)) {
         if (!radar_replay_ok(&s_replay,salt,ctr)) return;
         memcpy(&s_status, pl, sizeof s_status);
         if (s_status.threat_count > RADAR_MAX_THREATS)      // never trust the wire field: threats[] is fixed-size
             s_status.threat_count = RADAR_MAX_THREATS;      // (a conforming decoy already clamps; this guards the renderer regardless)
         s_status_ms = (uint32_t)(esp_timer_get_time()/1000);
-        uint8_t nid = info ? node_id_for(info->src_addr) : 0;
-        if (info) fleet_status_upsert(&s_fleet, nid, &s_status, s_status_ms);
+        uint8_t nid = node_id_for(src, s_status_ms);
+        fleet_status_upsert(&s_fleet, nid, &s_status, s_status_ms);
         ESP_LOGW(TAG, "status rx: N%u decoys=%u threats=%u up=%lus",
                  (unsigned)nid, (unsigned)s_status.active_devices,
                  (unsigned)s_status.threat_count, (unsigned long)s_status.uptime_s);
@@ -378,18 +466,54 @@ static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int le
         return;
     }
 }
+// RX hand-off ring: the only work done in the Wi-Fi driver task is a bounds-checked copy.
+// 32 slots, not 8. Measured on the live fleet: a 3-node fleet plus the Vigil bursts well past 8
+// frames between drains -- STATUS is sent 3x and REQUEST 4x by design (redundancy over a lossy
+// broadcast), and learn/sig sync arrive in chunk trains. At 8 the ring overflowed within seconds
+// (15 dropped in one burst on the Vigil). Dropping is safe for the redundant telemetry but would
+// silently discard a CONFIG command, so size for the real burst instead.
+#define RX_RING_N 32
+typedef struct { uint8_t data[RADAR_FRAME_MAX]; uint16_t len; uint8_t src[6]; } rx_item_t;
+static rx_item_t        s_rx_ring[RX_RING_N];
+static volatile uint8_t s_rx_head, s_rx_tail;   // single producer / single consumer
+static uint32_t         s_rx_dropped;
+
+static void on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len){
+    if (len <= 0 || len > RADAR_FRAME_MAX) return;
+    uint8_t head = s_rx_head, next = (uint8_t)((head + 1) % RX_RING_N);
+    if (next == s_rx_tail) { s_rx_dropped++; return; }
+    rx_item_t *it = &s_rx_ring[head];
+    memcpy(it->data, data, (size_t)len);
+    it->len = (uint16_t)len;
+    if (info) memcpy(it->src, info->src_addr, 6); else memset(it->src, 0, 6);
+    s_rx_head = next;                           // publish last: the item is complete first
+}
+
+static void drain_rx(void){
+    while (s_rx_tail != s_rx_head) {
+        rx_item_t *it = &s_rx_ring[s_rx_tail];
+        handle_frame(it->data, (int)it->len, it->src);
+        s_rx_tail = (uint8_t)((s_rx_tail + 1) % RX_RING_N);
+    }
+    if (s_rx_dropped) {
+        ESP_LOGW(TAG, "rx: dropped %u frame(s) (ring full)", (unsigned)s_rx_dropped);
+        s_rx_dropped = 0;
+    }
+}
+
 static void send_request(void){
     uint8_t nonce[4]; esp_fill_random(nonce,4);
     uint8_t frame[RADAR_FRAME_MAX]; size_t flen;
-    if (radar_wire_seal(frame,&flen,RADAR_TYPE_REQUEST,nonce,4,tx_key(),s_salt,++s_ctr)==0)
+    uint64_t ctr; if (!next_ctr(&ctr)) return;
+    if (radar_wire_seal(frame,&flen,RADAR_TYPE_REQUEST,nonce,4,tx_key(),s_salt,ctr)==0)
         for (int i=0;i<4;i++) esp_now_send(BCAST,frame,flen);
 }
 #ifdef SIMULACRA_CONFIG_CTRL
 static void send_config(uint8_t preset)
 {
-    uint64_t ctr = ++s_ctr;
-    uint8_t nonce12[12]; memcpy(nonce12, s_salt, 4);
-    for (int i = 0; i < 8; i++) nonce12[4+i] = (uint8_t)(ctr >> (56 - 8*i));
+    uint64_t ctr; if (!next_ctr(&ctr)) return;
+    uint8_t nonce12[12]; memcpy(nonce12, s_salt, RADAR_SALT_LEN);   // salt(8) || counter(4 BE)
+    for (int i = 0; i < 4; i++) nonce12[RADAR_SALT_LEN+i] = (uint8_t)(ctr >> (24 - 8*i));
     config_cmd_t cmd = { .version = CONFIG_WIRE_VER, .preset_id = preset };
     uint8_t pl[CONFIG_WIRE_PAYLOAD_LEN];
     if (config_wire_pack_signed(pl, sizeof pl, &cmd, nonce12, SIMULACRA_CTRL_SK) < 0) return;
@@ -572,8 +696,9 @@ static void broadcast_library(void){
         uint8_t pl[RADAR_FRAME_MAX]; size_t plen;
         if (learn_wire_pack(pl, &plen, &sel[off], nrec, 1, ci, chunks) != 0) continue;
         uint8_t frame[RADAR_FRAME_MAX]; size_t flen;
+        uint64_t ctr; if (!next_ctr(&ctr)) return;
         if (radar_wire_seal(frame, &flen, RADAR_TYPE_LEARN_SYNC, pl, plen,
-                            tx_key(), s_salt, ++s_ctr) == 0)
+                            tx_key(), s_salt, ctr) == 0)
             esp_now_send(BCAST, frame, flen);
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -589,7 +714,9 @@ static void net_init(void){
     esp_now_init();
     esp_now_peer_info_t p={0}; memcpy(p.peer_addr,BCAST,6); p.channel=ESPNOW_CH; p.ifidx=WIFI_IF_STA;
     esp_now_add_peer(&p); esp_now_register_recv_cb(on_recv);
-    esp_fill_random(s_salt,4);
+    esp_fill_random(s_salt,RADAR_SALT_LEN);
+    ctr_reserve_block();   // counters must outlive a Vigil reboot: decoys gate CONFIG on a
+                           // persisted monotonic floor and would reject a restarted-from-1 counter
     ESP_LOGW(TAG, "espnow up (ch=%d), requesting...", ESPNOW_CH);
 }
 
@@ -873,6 +1000,13 @@ void app_main(void)
         prev_view = ui.view;
         // keep asking every ~1s while the screen is awake so data stays fresh (not while sniffing)
         if (ui.backlight_on && !espnow_suspended && now-last_req > 1000) { send_request(); last_req=now; }
+        drain_rx();   // ALL frame processing, off the Wi-Fi driver task. Must sit OUTSIDE the
+                      // provisioning gate: the baked fleet build has no FLEET_PROVISION, and with
+                      // the drain compiled out the Vigil receives nothing at all -- every node
+                      // renders SILENT while the decoys answer perfectly well.
+        // The drain stamps node records with a fresher clock than the `now` sampled at the top of
+        // this frame. Re-read it so liveness checks below never compare against a stale `now`.
+        now = (uint32_t)(esp_timer_get_time()/1000);
 #ifdef SIMULACRA_FLEET_PROVISION
         if (s_enrreq_ready) enroll_process_request(now);
         if (now < s_pair_until_ms) {
@@ -894,6 +1028,10 @@ void app_main(void)
         // Fleet-wide view: fold every alive node into one status so the sub-views (radar/
         // followers/decoys) show the whole fleet, not whichever node reported last. HOME still
         // renders per-node cards from s_fleet; the aggregate drives the sub-views + the tick logic.
+        // Retire long-gone nodes so their SILENT cards stop occupying HOME's three card slots.
+        // 60 s is 5x the stale threshold: a node that merely missed a few replies still shows as
+        // SILENT, but one that rebooted under a new MAC (or was unplugged) eventually disappears.
+        fleet_status_prune(&s_fleet, now, 60000u);
         radar_wire_status_t agg; fleet_status_aggregate(&s_fleet, now, &agg);
         radar_ui_on_tick(&ui, now, agg.threat_count);
         if (ui.backlight_on != bl_was_on) {
