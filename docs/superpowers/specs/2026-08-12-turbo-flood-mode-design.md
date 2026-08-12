@@ -163,13 +163,23 @@ every existing preset transition. No lingering flood state.
   (`ESP_ERR_NO_MEM`/257 injecting all 8 channels back-to-back). This tuning pass produces the real
   TURBO interval constants; this spec deliberately does not guess them.
 
-## Open question (resolve during implementation, not here)
+## Open question — resolved
 
-**Exact TURBO rotation/injection intervals.** This spec establishes the mechanism (bypass
-population-match, max both radios, template-pool draw) but not the numbers — they can only be found
-by flashing a build with aggressive placeholder constants and watching for controller errors on real
-hardware, the same way the existing 5 GHz excursion pacing was found. The implementation plan should
-budget an explicit hardware-tuning task for this rather than shipping a guessed constant.
+**Exact TURBO rotation/injection intervals.** Tuned and verified on the real fleet (2× Waveshare C5,
+1× SparkFun C6, CYD control node); the placeholder constants from initial implementation held with no
+adjustment needed:
+
+- `CHURN_SLICE_MS` override (BLE presentation cadence, `coexist.c` `COEX_TURBO_SLICE_MS`): **250 ms**
+  (vs the normal 1000 ms) — the 4 physical adv slots re-evaluate 4× faster while turbo is active.
+- `dev_spawn` lifetime band (`ble_devices.c` `TURBO_LIFE_MIN_MS`/`MAX_MS`): **2000–5000 ms**.
+- Wi-Fi MAC rotation band (`probe_agents.c` `TURBO_MAC_ROT_MIN_MS`/`MAX_MS`): **3000–8000 ms**.
+
+Verified via a live CYD → fleet CONTROL → TURBO → SEND (2-tap confirm) trigger: all four boards
+accepted the preset, decoys jumped to `BLE_DEVICES_MAX`/`PROBE_AGENTS_MAX`, and — critically for the
+parked Task 5 finding — no TX errors (`ESP_ERR_NO_MEM`, `rc=257`, nonzero `tx_rc=`/`set_ch_rc=`)
+appeared on either C5 despite turbo's fire-every-tick Wi-Fi gate driving the 5 GHz excursion cadence
+(`COEX_5G_EVERY=4`) roughly 8× faster than its original design point. Revert to NORMAL from the CYD
+was also verified clean on hardware.
 
 ## Out of scope
 
