@@ -87,10 +87,18 @@
 
   <div class="grimoire">
     <b>Before you begin.</b> Works in desktop <span class="k-chrome">Chrome or Edge</span> only (Web
-    Serial). This installs the <b>baked starter</b> build — every fleet shares one public key, so it is
-    for <span class="k-warn">trying Simulacra out</span>, not a private deployment; build the provisioned
-    regime from source for real use. A plain (non-CYD) ESP32 board would receive controller firmware, so
-    use the boards above.
+    Serial). A plain (non-CYD) ESP32 board would receive controller firmware, so use the boards above.
+
+    <p><b class="k-warn">This starter build has no security.</b> Every unit flashed from this page
+    carries the same link key and trusts the same control key, and both are published in the source
+    repository. In practice that means anyone within radio range can
+    <span class="k-warn">read its telemetry</span> (including detected-threat data) and
+    <span class="k-warn">silently pause the decoy or wipe its detections</span> — a paused decoy looks
+    identical to a running one from the outside. Treat this build as a demo you can watch work, not as
+    protection you can rely on.</p>
+
+    <p>For anything real, build the <b>provisioned</b> regime from source: it mints per-fleet keys, so
+    only your own Vigil can read from or command your nodes.</p>
   </div>
 
   <footer>
