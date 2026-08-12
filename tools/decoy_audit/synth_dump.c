@@ -133,6 +133,12 @@ int main(int argc, char **argv) {
                 printf("%d\n", (int)fleet_node_count(u));
             } else if (strcmp(cmd, "livesize") == 0 && sscanf(line, "%*s %u", &u) == 1) {
                 printf("%d\n", fleet_pop_live_size(u));
+            } else if (strcmp(cmd, "refresh") == 0 && sscanf(line, "%*s %u", &u) == 1) {
+                fleet_pop_refresh(u);                  /* what the coexist tick does */
+            } else if (strcmp(cmd, "size") == 0) {
+                printf("%d\n", fleet_pop_size());      /* K the share maths uses */
+            } else if (strcmp(cmd, "share") == 0 && sscanf(line, "%*s %u", &u) == 1) {
+                printf("%d\n", fleet_pop_share((int)u));
             }
         }
         return 0;

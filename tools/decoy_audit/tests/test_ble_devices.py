@@ -89,17 +89,36 @@ class Rotation(unittest.TestCase):
             self.assertEqual([e for e in s if e[5] == "rotate"], [], "a static device rotated")
 
     def test_rpa_rotation_in_band(self):
-        segs = self.segments(sim(12, n=24, ticks=8000, tick_ms=1000))
-        rots = []
-        for s in segs:
-            if s[0][3] != "rpa": continue
-            ts = [e[0] for e in s if e[5] in ("born", "rotate")]
-            rots += [b - a for a, b in zip(ts, ts[1:])]
+        # Swept over several seeds at a wide population rather than pinned to one lucky seed. RPA is
+        # 5% of the unbound mix, so a single 24-device run can easily sample zero RPA devices -- and
+        # the host RNG stub wraps libc rand(), so a pinned seed draws differently under MSVC and
+        # glibc. Both together made this test a coin flip that depended on the compiler.
+        rots, rpa_segs = [], 0
+        for seed in range(10, 16):
+            for s in self.segments(sim(seed, n=64, ticks=20000, tick_ms=1000)):
+                if s[0][3] != "rpa": continue
+                rpa_segs += 1
+                ts = [e[0] for e in s if e[5] in ("born", "rotate")]
+                rots += [b - a for a, b in zip(ts, ts[1:])]
+        self.assertGreater(rpa_segs, 10, "too few RPA devices sampled to test rotation")
         self.assertTrue(rots, "no RPA rotations observed")
         # every observed inter-rotation gap sits in the 10-20 min band (ms), allowing tick slack
         for g in rots:
             self.assertGreaterEqual(g, 600000 - 1000, f"RPA rotated too fast: {g} ms")
             self.assertLessEqual(g, 1200000 + 1000, f"RPA rotated too slow: {g} ms")
+
+    def test_rpa_devices_live_long_enough_to_rotate(self):
+        """An RPA device that dies before its first 10-20 min rotation presents an address whose top
+        two bits advertise 'I rotate' while it never does. RPA is pinned to the resident band (30-90
+        min) so that cannot happen; assert the property, not the constant."""
+        unrotated = 0
+        for seed in range(10, 16):
+            for s in self.segments(sim(seed, n=64, ticks=20000, tick_ms=1000)):
+                if s[0][3] != "rpa": continue
+                if s[-1][0] - s[0][0] < 1200000: continue   # never lived past the 20 min ceiling
+                if not any(e[5] == "rotate" for e in s):
+                    unrotated += 1
+        self.assertEqual(unrotated, 0, "an RPA device outlived its rotation deadline without rotating")
 
     def test_behaviour_preserved_across_rotation(self):
         segs = self.segments(sim(13, n=24, ticks=8000, tick_ms=1000))

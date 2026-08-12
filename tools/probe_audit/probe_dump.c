@@ -37,6 +37,63 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+    // Drives EXACTLY the call sequence coexist_task uses in the shipped combined build --
+    // phantom_lifecycle + phantom_sync_wifi + probe_agents_rotate_tick, and deliberately NOT
+    // probe_agents_lifecycle (that runs only under SIMULACRA_PROBE). --agentrot passes even when
+    // the shipped build never rotates, which is how BUG-1 survived; this mode is the guard.
+    if (argc > 1 && strcmp(argv[1], "--coexistrot") == 0) {
+        unsigned seed   = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int      nph    = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 4;
+        int      ticks  = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 60;
+        unsigned tickms = argc > 5 ? (unsigned)strtoul(argv[5], 0, 10) : 60000;
+        srand(seed);
+        probe_agents_init(nph, 0);
+        phantom_init(nph, 0);
+        phantom_sync_wifi(0);
+        char last[PROBE_AGENTS_MAX][13];
+        memset(last, 0, sizeof last);
+        uint32_t t = 0;
+        for (int s = 0; s <= ticks; s++) {
+            if (s) t += tickms;
+            phantom_lifecycle(t);
+            phantom_sync_wifi(t);
+            probe_agents_rotate_tick(t);
+            for (int i = 0; i < probe_agents_count() && i < PROBE_AGENTS_MAX; i++) {
+                const probe_agent_t *a = probe_agents_at(i);
+                char hex[13]; for (int b = 0; b < 6; b++) sprintf(hex + b * 2, "%02x", a->mac[b]);
+                if (strcmp(hex, last[i]) != 0) {   // t, agent, mac, persona generation
+                    printf("%u %d %s %u\n", (unsigned)t, i, hex, (unsigned)a->persona_gen);
+                    strcpy(last[i], hex);
+                }
+            }
+        }
+        return 0;
+    }
+    // Persona/agent count coupling. The Wi-Fi agent count tracks room density via the glide, while
+    // the persona registry was fixed at boot -- so in a quiet room the surplus personas advertised a
+    // phone on BLE that never probed on Wi-Fi (a single-radio ghost), and in a busy room the surplus
+    // agents had no persona and no lifecycle at all. Prints the two counts after each glide step.
+    if (argc > 1 && strcmp(argv[1], "--personabind") == 0) {
+        unsigned seed  = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int      n0    = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 8;
+        int      ticks = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 40;
+        srand(seed);
+        probe_agents_init(n0, 0);
+        phantom_init(n0, 0);
+        uint32_t t = 0;
+        for (int s = 0; s < ticks; s++) {
+            t += 60000u;
+            // targets swing well above and below the boot count, as room density does
+            int target = (s % 8 < 4) ? 2 : PROBE_AGENTS_MAX;
+            probe_agents_glide_set_target(target, t);
+            probe_agents_glide_tick(t);
+            phantom_set_count(probe_agents_count(), t);   // the coupling under test
+            phantom_sync_wifi(t);
+            probe_agents_rotate_tick(t);
+            printf("%u %d %d\n", (unsigned)t, probe_agents_count(), phantom_count());
+        }
+        return 0;
+    }
     if (argc > 1 && strcmp(argv[1], "--settarget") == 0) {
         unsigned seed = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
         int      n0   = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 8;

@@ -40,5 +40,33 @@ class FleetCensus(unittest.TestCase):
         pass  # covered structurally: --fleetnode never touches fleet_note_peer_macs
 
 
+@unittest.skipUnless(os.path.exists(EXE), "synth_dump not built")
+class ShareFollowsLiveCensus(unittest.TestCase):
+    """The BLE crowd share must divide by the LIVE node count, not a compile-time constant.
+
+    SIMULACRA_FLEET_SIZE defaulted to 1 and nothing ever set it, so every node in a 3-node fleet
+    sized its crowd as if standalone: roughly 3x the intended BLE density radiating in one room,
+    which re-opens the density tell that population-match exists to close. The Wi-Fi side already
+    used the live census; these pin the BLE side to it too."""
+
+    def test_size_is_one_with_no_peers(self):
+        self.assertEqual(fleetnode("reset\nrefresh 0\nsize\n"), [1])
+
+    def test_size_follows_peers_heard(self):
+        # two peers heard + self = 3
+        self.assertEqual(fleetnode("reset\n" + _macs(2) + "refresh 0\nsize\n"), [3])
+
+    def test_share_divides_by_live_size(self):
+        # a fleet-wide target of 30 across 3 nodes -> 10 each
+        self.assertEqual(fleetnode("reset\n" + _macs(2) + "refresh 0\nshare 30\n"), [10])
+
+    def test_share_is_whole_target_when_standalone(self):
+        self.assertEqual(fleetnode("reset\nrefresh 0\nshare 30\n"), [30])
+
+    def test_size_drops_back_when_peers_go_quiet(self):
+        # peers noted at t=0 age out by t=200000 -> back to standalone, full crowd again
+        self.assertEqual(fleetnode("reset\n" + _macs(2) + "refresh 200000\nshare 30\n"), [30])
+
+
 if __name__ == "__main__":
     unittest.main()
