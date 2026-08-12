@@ -9,7 +9,12 @@
 // dependency chain for zero test value, so this stub only satisfies the linker.
 #include "ble_devices.h"
 
-int ble_devices_count(void) { return 0; }
+// The harness drives the Wi-Fi side only, so the BLE population is reported as unbounded here:
+// returning 0 would make phantom_set_count believe it must grow the BLE crowd on every call.
+int ble_devices_count(void) { return 32; }   // == BLE_DEVICES_MAX
+
+void ble_devices_set_count(int n, uint32_t now_ms) { (void)n; (void)now_ms; }
+void ble_device_unbind(int slot, uint32_t now_ms)  { (void)slot; (void)now_ms; }
 
 int ble_device_sync(int slot, int persona_idx, bool apple,
                      uint32_t born_ms, uint32_t life_ms, uint32_t generation)

@@ -1,0 +1,45 @@
+# Host test suites. Until this existed, nothing ran the ~190 tests in tools/ on push: the probe_audit
+# POSIX build had been broken by a missing source for weeks, and a decoy_audit test had gone
+# seed-dependent -- both invisible because the only workflow built firmware and deployed Pages.
+name: host-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the host harnesses
+        run: |
+          for d in probe_audit decoy_audit pcap_learn radar_audit; do
+            echo "::group::$d"
+            make -C tools/$d
+            echo "::endgroup::"
+          done
+
+      - name: Run the suites
+        run: python -m unittest discover -s tools -t . -p 'test_*.py' -v
+
+      - name: Run the web manifest tests
+        run: python -m unittest discover -s web -t . -p 'test_*.py'
+
+  # The on-target self-test never runs in CI (it needs hardware), but it must keep COMPILING as the
+  # APIs it asserts against move -- otherwise it silently rots and stops being flashable when needed.
+  selftest-compiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build CHURN_SELFTEST=1
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4
+          target: esp32c6
+          path: .
+          command: idf.py -B build_st -DCHURN_SELFTEST=1 -DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1 build
