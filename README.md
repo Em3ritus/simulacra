@@ -86,9 +86,12 @@ Roles are selected at build time so one firmware tree serves every board.
   Law-3 gated), synced across the fleet and persisted to an **encrypted-at-rest** SD library on Vigil.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
 - **Signed fleet control:** Vigil pushes Ed25519-signed behaviour presets (PAUSE / STEALTH /
-  NORMAL / DENSE / MAX) to every decoy over ESP-NOW — and the console shows which preset the fleet
-  is **actually running** (live vs. pending), plus a signed one-tap **clear-threats** command that
-  wipes every decoy's stale detection history from the panel.
+  NORMAL / DENSE / MAX / **TURBO**) to every decoy over ESP-NOW — and the console shows which preset
+  the fleet is **actually running** (live vs. pending), plus a signed one-tap **clear-threats**
+  command that wipes every decoy's stale detection history from the panel. **TURBO** is a field-use
+  flood mode, not a realism mode: every board independently maxes its own BLE and Wi-Fi churn — no
+  room-density matching — to raise the processing cost of whoever's watching. Manual-only, two-tap
+  confirm on the console, sticky until changed.
 - **On-air fleet enrollment (ECDH):** decoys ship with no shared transport key and enroll on-air via
   a mutually-authenticated 3-message handshake, so **capturing a decoy does not compromise the fleet.**
 - **Vigil console:** an at-a-glance **protection posture** — one honest word for your current state
@@ -198,6 +201,13 @@ Each tool has its own README with build and run steps.
 
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **TURBO flood mode.** A sixth console preset for field use, not realism: trigger it fleet-wide
+  (two-tap confirm) and every board independently maxes its own BLE + Wi-Fi churn — no room-density
+  matching, no persona coupling — burning through as much identifier space as the hardware sustains.
+  The idea, and the framing that population-matching optimizes for *not being flagged* while TURBO
+  optimizes for *processing cost*, came out of a DEFCON conversation. Ships in main and the public
+  web-flasher build. Hardware-verified at both full 3-node-fleet and single-standalone-board (K=1)
+  scale with zero radio TX errors.
 - **Vigil console, fully fleshed out.** The touch dashboard became a real operator console: tap a
   node card for a **per-node telemetry page**; tap a follower for a **per-threat detail card**
   surfacing the fields the decoys already report (device class, match confidence, vendor company-id,
