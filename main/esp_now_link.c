@@ -140,6 +140,34 @@ static uint8_t s_enr_nonce_d[24];   // our per-session nonce (bound into the GRA
 static uint8_t s_enr_veph[32];      // Vigil ephemeral pubkey from the OFFER we answered
 static bool    s_enr_pending;
 
+// An un-enrolled decoy answers ANY signature-valid OFFER, unconditionally, forever -- that's the
+// whole point while it's actively seeking enrollment (the Vigil re-broadcasts the SAME OFFER, same
+// nonce_v, once a second for its whole 30s pairing window, and this decoy must be able to answer
+// whichever resend actually gets through if an earlier REQUEST was lost). But with no bound at all,
+// an attacker who captures one signed OFFER can replay it days or weeks later and the decoy will
+// answer again with its permanent, never-rotating id_pk in plaintext -- turning an anti-tracking
+// device into a stable tracking beacon for anyone who recorded one pairing window. Bound each
+// nonce_v to a generous local answer window (comfortably longer than the Vigil's real 30s window,
+// so every legitimate resend still gets answered) and refuse it once that elapses.
+#define ENR_NONCE_HISTORY        8
+#define ENR_NONCE_ANSWER_MS  60000u
+typedef struct { uint8_t nv[24]; uint32_t first_seen_ms; bool used; } enr_nonce_rec_t;
+static enr_nonce_rec_t s_enr_nv[ENR_NONCE_HISTORY];
+static int s_enr_nv_head;
+
+static bool enr_nonce_answerable(const uint8_t nv[24], uint32_t now_ms)
+{
+    for (int i = 0; i < ENR_NONCE_HISTORY; i++) {
+        if (s_enr_nv[i].used && memcmp(s_enr_nv[i].nv, nv, 24) == 0)
+            return (uint32_t)(now_ms - s_enr_nv[i].first_seen_ms) < ENR_NONCE_ANSWER_MS;
+    }
+    memcpy(s_enr_nv[s_enr_nv_head].nv, nv, 24);
+    s_enr_nv[s_enr_nv_head].first_seen_ms = now_ms;
+    s_enr_nv[s_enr_nv_head].used = true;
+    s_enr_nv_head = (s_enr_nv_head + 1) % ENR_NONCE_HISTORY;
+    return true;
+}
+
 // Handle a raw (unsealed) enrollment frame: [type(1) | enroll payload].
 static void enroll_on_frame(const uint8_t *data, int len)
 {
@@ -151,6 +179,8 @@ static void enroll_on_frame(const uint8_t *data, int len)
         // Answer when unenrolled, or when the offer carries a newer key (rotation). A same-or-
         // older epoch offer to an already-keyed decoy is ignored (replay / steady state).
         if (fleet_key_have() && epoch <= fleet_key_epoch()) return;
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        if (!enr_nonce_answerable(nv, now_ms)) return;        // stale/replayed challenge -- refuse
         esp_fill_random(s_enr_nonce_d, 24);                  // fresh session
         memcpy(s_enr_veph, veph, 32);
         uint8_t idsk[32]; fleet_id_sk(idsk);
