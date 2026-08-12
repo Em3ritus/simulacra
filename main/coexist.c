@@ -114,8 +114,8 @@ void coexist_set_turbo(bool on)
     if (on == s_turbo) return;                        // idempotent
     s_turbo = on;
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-    ble_devices_set_turbo(on);
-    probe_agents_set_turbo(on);
+    ble_devices_set_turbo(on, now);
+    probe_agents_set_turbo(on, now);
     churn_set_slice_ms(on ? COEX_TURBO_SLICE_MS : CHURN_SLICE_MS);
     if (on) {
         // Bypasses the fleet-share ceiling directly: every board floods at its OWN hardware max,
@@ -127,7 +127,18 @@ void coexist_set_turbo(bool on)
         phantom_set_count(0, now);
         ESP_LOGW(TAG, "TURBO: flooding at max (ble=%d wifi=%d)", BLE_DEVICES_MAX, PROBE_AGENTS_MAX);
     } else {
-        ESP_LOGW(TAG, "TURBO: off, resuming normal population-match");
+        // BLE already snaps back to the fleet-shared ceiling synchronously via
+        // sim_settings_apply's churn_set_active_target -> ble_devices_set_count (called before this,
+        // so ble_devices_count() below already reflects the new ceiling). Wi-Fi has no equivalent
+        // path: probe_agents_count() would otherwise stay at PROBE_AGENTS_MAX until the next
+        // reprofile (up to ~10 min), radiating a maxed, non-population-matched crowd after the
+        // operator told the node to stand down. Re-arm the glide's target now, using the same
+        // crowd/2 fleet-share cap the non-turbo Wi-Fi block computes every burst -- only the
+        // *target* is re-armed immediately; the glide keeps stepping down gradually.
+        int crowd = ble_devices_count();
+        int cap   = crowd / 2; if (cap < 1) cap = 1;
+        probe_agents_glide_set_target(cap, now);
+        ESP_LOGW(TAG, "TURBO: off, resuming normal population-match (wifi glide -> %d)", cap);
     }
 }
 
@@ -359,6 +370,12 @@ static void coexist_task(void *arg)
         }
         coexist_drain_requests();                       // control commands land here, not on the
         churn_tick(now);                                // caller's task (single-writer discipline)
+        if (s_turbo) {                                  // re-assert: a radio re-init (probe_pool_init
+            // on boot-restore or a WEBUI wifi re-enable) can silently reset either count while
+            // TURBO stays flagged on. Both calls are idempotent no-ops once at the ceiling.
+            if (ble_devices_count()  < BLE_DEVICES_MAX)  ble_devices_set_count(BLE_DEVICES_MAX, now);
+            if (probe_agents_count() < PROBE_AGENTS_MAX) probe_agents_set_target(PROBE_AGENTS_MAX, now);
+        }
         coexist_decay_accel();
         detect_threat_t nt;
         if (detect_drain_pending(&nt)) {                // persist a new confirmation off the BLE callback

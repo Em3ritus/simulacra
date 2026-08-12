@@ -29,7 +29,23 @@ static uint32_t s_next_glide_ms;      // earliest time the next +/-1 step may ap
 
 static uint32_t rnd_range(uint32_t lo, uint32_t hi) { return lo + (esp_random() % (hi - lo + 1u)); }
 static bool     s_turbo = false;
-void probe_agents_set_turbo(bool on) { s_turbo = on; }
+
+// Turning turbo ON also forces every already-live agent onto the turbo behaviour: an agent that
+// was DUTY_IDLE (30-180 s scan interval) or mid-way through its 8-15 min persona MAC-rotation
+// deadline would otherwise stay that way for the rest of the turbo session -- only fresh
+// spawns/reincarnations picked up turbo behaviour before this. No reverse pass on turbo-off: the
+// forced state simply stops being reasserted and the next natural rotation/rebirth takes over.
+void probe_agents_set_turbo(bool on, uint32_t now_ms)
+{
+    s_turbo = on;
+    if (!on) return;
+    for (int i = 0; i < s_n; i++) {
+        probe_agent_t *a = &s_agents[i];
+        if (!a->alive) continue;
+        a->duty = DUTY_ACTIVE;
+        a->next_mac_rotate_ms = now_ms + rnd_range(TURBO_MAC_ROT_MIN_MS, TURBO_MAC_ROT_MAX_MS);
+    }
+}
 // The MAC rotation interval, on whichever band is active. Renamed from persona_mac_rotate_base:
 // it now serves both the persona band (unchanged) and the turbo band, not personas exclusively.
 static uint32_t mac_rotate_base(void)

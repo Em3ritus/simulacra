@@ -45,8 +45,11 @@ float ble_devices_accel(void);
 // TURBO mode: every freshly spawned device (init/grow/respawn-on-expiry) gets a short fixed
 // lifetime instead of the normal role/atype-based bands, overriding accel entirely. Only life_ms
 // changes -- atype/role/payload are still drawn normally, so identity diversity is unaffected.
-// Idempotent; off by default.
-void  ble_devices_set_turbo(bool on);
+// Turning ON also clamps the remaining lifetime of every live unbound device into the turbo band
+// (elapsed + a fresh turbo draw) so the switch bites the already-live crowd immediately instead of
+// only future spawns; bound (persona) slots are untouched. No equivalent pass on turbo-off: the
+// short turbo lives expire on their own within seconds. `now_ms` is only used when turning on.
+void  ble_devices_set_turbo(bool on, uint32_t now_ms);
 // Shade-form breakdown of the live population by address subtype: restless=RPA (rotating),
 // wandering=NRPA (rotating, no resolvable identity), bound=static (never rotates).
 void  ble_devices_form_counts(uint8_t *restless, uint8_t *wandering, uint8_t *bound);

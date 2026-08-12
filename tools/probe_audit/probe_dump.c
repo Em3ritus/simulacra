@@ -45,7 +45,7 @@ int main(int argc, char **argv)
         int      ticks  = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 20;
         unsigned tickms = argc > 4 ? (unsigned)strtoul(argv[4], 0, 10) : 1000;
         srand(seed);
-        probe_agents_set_turbo(1);
+        probe_agents_set_turbo(1, 0);
         probe_agents_set_target(1, 0);
         char last[13] = "";
         uint32_t t = 0;
@@ -55,6 +55,48 @@ int main(int argc, char **argv)
             const probe_agent_t *a = probe_agents_at(0);
             char hex[13]; for (int b = 0; b < 6; b++) sprintf(hex + b * 2, "%02x", a->mac[b]);
             if (strcmp(hex, last) != 0) { printf("%u %s\n", (unsigned)t, hex); strcpy(last, hex); }
+        }
+        return 0;
+    }
+    // Regression guard for the I-1 fix: init normally (turbo off -- agents land on the normal
+    // 1-10 min life / 30-180s idle-scan / 8-15 min persona-band MAC rotation), run some ticks so
+    // some agents are genuinely idle and mid-way through a slow rotation deadline, THEN flip
+    // turbo on mid-run. Before the fix, probe_agents_set_turbo only touched a flag read at
+    // spawn time, so a pre-existing idle agent stayed idle on the slow rotation band for the rest
+    // of the turbo session; the fix forces duty=ACTIVE and pulls next_mac_rotate_ms into the
+    // turbo band on the spot. Prints "A <t> <slot> active|idle" once right after the switch (duty
+    // snapshot), then "R <t> <slot> <mac>" for every rotation observed afterward.
+    if (argc > 1 && strcmp(argv[1], "--agents-lateturbo") == 0) {
+        unsigned seed      = argc > 2 ? (unsigned)strtoul(argv[2], 0, 10) : 1;
+        int      n         = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 8;
+        int      pre_ticks = argc > 4 ? (int)strtoul(argv[4], 0, 10) : 5;
+        int      post_ticks= argc > 5 ? (int)strtoul(argv[5], 0, 10) : 20;
+        unsigned tickms    = argc > 6 ? (unsigned)strtoul(argv[6], 0, 10) : 1000;
+        srand(seed);
+        probe_agents_init(n, 0);                        // turbo OFF: normal duty mix + slow rotation
+        uint32_t t = 0;
+        for (int s = 0; s < pre_ticks; s++) { t += tickms; probe_agents_rotate_tick(t); }
+        probe_agents_set_turbo(1, t);                    // flip mid-run: the fix under test
+        for (int i = 0; i < n; i++) {
+            const probe_agent_t *a = probe_agents_at(i);
+            printf("A %u %d %s\n", (unsigned)t, i, a->duty == DUTY_ACTIVE ? "active" : "idle");
+        }
+        static char last[PROBE_AGENTS_MAX][13];
+        for (int i = 0; i < n; i++) {
+            const probe_agent_t *a = probe_agents_at(i);
+            for (int b = 0; b < 6; b++) sprintf(last[i] + b * 2, "%02x", a->mac[b]);
+        }
+        for (int s = 0; s <= post_ticks; s++) {
+            if (s) t += tickms;
+            probe_agents_rotate_tick(t);
+            for (int i = 0; i < n; i++) {
+                const probe_agent_t *a = probe_agents_at(i);
+                char hex[13]; for (int b = 0; b < 6; b++) sprintf(hex + b * 2, "%02x", a->mac[b]);
+                if (strcmp(hex, last[i]) != 0) {
+                    printf("R %u %d %s\n", (unsigned)t, i, hex);
+                    strcpy(last[i], hex);
+                }
+            }
         }
         return 0;
     }

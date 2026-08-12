@@ -919,6 +919,7 @@ void app_main(void)
 #ifdef SIMULACRA_FLEET_PROVISION
                 if (ty < 28) {                           // top FLEET ROSTER bar -> open roster
                     s_fleet_modal = true; s_fleet_sel = 0; s_fleet_scroll = 0; s_fleet_arm_ms = 0;
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;   // any other interaction disarms (M-5)
                     radar_ui_note_input(&ui, now);
                 } else
 #endif

@@ -64,8 +64,11 @@ int probe_glide_next(int current, int target, int step);
 
 // TURBO mode: freshly spawned agents are forced DUTY_ACTIVE with the scan interval floored to
 // ACTIVE_MIN_MS, and MAC rotation (agent_spawn's initial schedule AND probe_agents_rotate_tick)
-// uses a much shorter band than the normal 8-15 min persona band. Idempotent; off by default.
-void probe_agents_set_turbo(bool on);
+// uses a much shorter band than the normal 8-15 min persona band. Turning ON also forces every
+// already-live agent to DUTY_ACTIVE and pulls its next MAC-rotation deadline into the turbo band,
+// so the switch bites the already-live population immediately instead of only future spawns.
+// `now_ms` is only used when turning on. Idempotent; off by default.
+void probe_agents_set_turbo(bool on, uint32_t now_ms);
 
 // Record the desired applied population. The FIRST call after probe_agents_init applies immediately
 // (boot-instant, no ramp); later calls only record it — probe_agents_glide_tick ramps toward it by

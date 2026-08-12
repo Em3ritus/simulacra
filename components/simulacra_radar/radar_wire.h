@@ -33,7 +33,7 @@ typedef struct __attribute__((packed)) {
     uint8_t form_restless, form_wandering, form_bound;  // BLE shade-form counts: RPA/NRPA/static
     uint16_t battery_mv;                                 // cell voltage, 0 = no battery / no gauge
     uint8_t  battery_pct;                                // state-of-charge %, 0xFF = unavailable (ADC backend)
-    uint8_t  preset;                                     // running preset: 0-4 sim_preset_t, 5 CUSTOM, 0xFE MIXED, 0xFF none
+    uint8_t  preset;                                     // running preset: 0-5 sim_preset_t (5=TURBO), 6 CUSTOM, 0xFE MIXED, 0xFF none
 } radar_wire_status_t;
 
 typedef struct { uint8_t salt[RADAR_SALT_LEN]; uint64_t counter; bool seen; } radar_replay_t;

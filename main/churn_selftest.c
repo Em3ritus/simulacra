@@ -33,6 +33,14 @@
 #include "sig_match.h"
 #include "sig_db.h"
 #include "sig_wire.h"
+
+// The CYD's CONTROL page button labels (RADAR_CTRL_PRESET_COUNT/CTRL_LABELS in radar_render.c) and
+// the firmware's preset enum (SIM_PRESET_COUNT in settings.h) are two unlinked copies of the same
+// count -- radar_render.c deliberately does not depend on main/ (see M-2 in the 2026-08-12 turbo
+// review). Catch a future 7th preset silently desyncing them at compile time instead of at runtime
+// ("the button says DENSE and the fleet runs MAX").
+_Static_assert(RADAR_CTRL_PRESET_COUNT == SIM_PRESET_COUNT,
+              "CYD preset labels and firmware preset enum must match");
 #include "sig_seed.h"
 #include "sig_class_name.h"
 #include "sig_store.h"

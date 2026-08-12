@@ -12,6 +12,13 @@ def devices(seed=1, n=8, ticks=20, tick_ms=1000, turbo=False):
     # columns: [0]="D" [1]=t [2]=slot [3]=addr_hex [4]=atype [5]=role [6]=event [7]=company [8]=itvl
 
 
+def devices_lateturbo(seed=1, n=8, pre_ticks=5, post_ticks=20, tick_ms=1000):
+    args = [EXE, "--devices-lateturbo", str(seed), str(n), str(pre_ticks), str(post_ticks), str(tick_ms)]
+    out = subprocess.check_output(args, text=True)
+    # columns: [0]="D" [1]=t [2]=slot [3]="born"
+    return [ln.split() for ln in out.splitlines() if ln.startswith("D ")]
+
+
 @unittest.skipUnless(os.path.exists(EXE), "synth_dump not built")
 class TurboBleChurn(unittest.TestCase):
     def test_turbo_respawns_far_more_than_normal(self):
@@ -48,6 +55,27 @@ class TurboBleChurn(unittest.TestCase):
         companies = {r[7] for r in rows if r[6] == "born"}
         self.assertGreater(len(atypes), 1, f"turbo collapsed to one atype: {atypes}")
         self.assertGreater(len(companies), 1, f"turbo collapsed to one company: {companies}")
+
+    def test_turbo_switched_on_midrun_respawns_preexisting_slots(self):
+        # I-1 regression guard: init with turbo OFF (devices land on normal 30 min-12 h bands, so
+        # none would ever respawn on their own inside this whole window), run a few ticks so the
+        # crowd is genuinely alive on the slow bands, THEN flip turbo on and keep ticking. Every
+        # slot that existed before the switch must produce a fresh identity within ~6 s of the
+        # switch -- not just newly-spawned slots (there are none here; growth doesn't apply).
+        rows = devices_lateturbo(seed=9, n=8, pre_ticks=5, post_ticks=20, tick_ms=1000)
+        # pre_ticks=5 ticks x 1000ms = turbo enabled at t=5000; the switch-time snapshot itself is
+        # never printed (memcmp against prev only fires on an actual address change), so every row
+        # here is a genuine post-switch respawn.
+        by_slot = {}
+        for r in rows:
+            slot = int(r[2]); t = int(r[1])
+            by_slot.setdefault(slot, []).append(t)
+        self.assertEqual(len(by_slot), 8,
+                          f"expected all 8 pre-existing slots to respawn after turbo switched on, got {by_slot}")
+        for slot, times in by_slot.items():
+            first = times[0]
+            self.assertLessEqual(first, 5000 + 6000,
+                                  f"slot {slot} took too long to respawn after turbo-on: first={first}")
 
 
 if __name__ == "__main__":
