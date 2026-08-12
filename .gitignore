@@ -32,3 +32,6 @@ __pycache__/
 
 # editor / IDE folders (Visual Studio) — can embed absolute paths
 .vs/
+
+# git worktrees for isolated feature work (superpowers subagent-driven-development)
+.worktrees/
