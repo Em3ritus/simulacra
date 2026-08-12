@@ -40,6 +40,11 @@ regulations and laws in your jurisdiction.** Do not use it to harass, impersonat
 person or device, interfere with networks or emergency services, or evade lawful process. Use it
 on hardware you own, in ways that are legal where you are. No warranty; see the license.
 
+**TURBO is not a DoS mode.** It's still in-spec, non-connectable BLE advertising and standard
+802.11 probe requests at legal power — no deauth, no jamming, no malformed frames. A handful of
+ESP32 boards cannot meaningfully deny service to nearby real networks or clients; what it does is
+raise the volume of traffic someone has to process. The same rules above apply to it.
+
 ---
 
 ## How it works
@@ -163,6 +168,20 @@ receive the grant, and stay invisible to the controller even while healthy. To r
 baked-key regime instead, omit `-DSIMULACRA_FLEET_PROVISION=1` from **every** node (all then share
 the key in `components/simulacra_radar/radar_key.h`). Changing any `-D…` flag needs a clean build
 (`rm -rf build sdkconfig`) so the old define doesn't linger.
+
+**Rotate the CONTROL signing key before real use.** `-DSIMULACRA_CONFIG_CTRL=1` (shown above) is a
+separate keypair from the fleet-transport key: whoever holds it can sign presets and CLEAR THREATS
+commands for every node trusting the matching public key. The committed placeholder bytes
+(`cyd/main/sim_ctrl_sk.h.example`) are **public knowledge** — they're in this repo's git history —
+so a fleet left on them has no real control-plane authentication. Regenerate before deploying
+anything you care about:
+
+```sh
+python tools/gen_ctrl_key.py       # rewrites the secret + public key headers
+```
+
+then rebuild and reflash **every** board together (decoys bake the new public key, the Vigil the new
+secret) — a half-rotated fleet stops verifying.
 
 ## Repository layout
 
