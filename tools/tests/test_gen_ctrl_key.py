@@ -61,5 +61,37 @@ class GenCtrlKey(unittest.TestCase):
                                 parse_array(os.path.join(d2, SK)), "keys must be fresh each run")
 
 
+REPO = os.path.dirname(os.path.dirname(HERE))
+
+
+def git(*args):
+    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True)
+
+
+@unittest.skipUnless(os.path.isdir(os.path.join(REPO, ".git")), "not a git checkout")
+class SecretStaysLocal(unittest.TestCase):
+    """The signing secret must never become committable again: whoever holds it can sign CONFIG
+    commands (pause / clear-threats) for every node trusting the matching public key."""
+
+    def test_secret_is_gitignored(self):
+        self.assertEqual(git("check-ignore", "-q", SK).returncode, 0,
+                         f"{SK} is not gitignored")
+
+    def test_secret_is_not_tracked(self):
+        self.assertNotEqual(git("ls-files", "--error-unmatch", SK).returncode, 0,
+                            f"{SK} is TRACKED — `git rm --cached {SK}`")
+
+    def test_example_template_is_tracked(self):
+        self.assertEqual(git("ls-files", "--error-unmatch", SK + ".example").returncode, 0,
+                         "the bring-up template must stay tracked or a fresh clone cannot build")
+
+    def test_generator_refuses_to_write_into_the_repo_if_tracked(self):
+        """Guard the guard: the refusal must key off git tracking, not a hardcoded path check."""
+        with open(os.path.join(os.path.dirname(HERE), "gen_ctrl_key.py")) as f:
+            src = f.read()
+        self.assertIn("ls-files", src, "refuse_if_tracked must consult git")
+        self.assertIn("refuse_if_tracked(a.out_dir)", src, "the refusal must run before writing")
+
+
 if __name__ == "__main__":
     unittest.main()

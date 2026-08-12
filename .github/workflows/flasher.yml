@@ -53,6 +53,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The Vigil signing secret is gitignored (it grants control authority over every node that
+      # trusts the matching public key), so a clean checkout has no sim_ctrl_sk.h. The starter build
+      # is explicitly the no-security regime -- see the warning on the flasher page -- so it builds
+      # from the published template. A private deployment regenerates both halves from source.
+      - name: Seed the control-key template (starter build only)
+        if: matrix.path == 'cyd'
+        run: cp cyd/main/sim_ctrl_sk.h.example cyd/main/sim_ctrl_sk.h
+
       # Build BAKED (-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1, NO FLEET_PROVISION), then merge the
       # bootloader+partition+app into one offset-0 image via esptool (offsets come from flash_args).
       - name: Build baked + merge

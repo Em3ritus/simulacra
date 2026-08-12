@@ -61,6 +61,18 @@ def write(path, text):
         f.write(text)
 
 
+def refuse_if_tracked(out_dir):
+    """Never write a real secret into a path git is tracking — one `git commit -a` would publish
+    fleet control authority. sim_ctrl_sk.h is gitignored; if it is tracked again, stop."""
+    if os.path.abspath(out_dir) != REPO:
+        return
+    r = subprocess.run(["git", "ls-files", "--error-unmatch", SK_REL],
+                       cwd=REPO, capture_output=True, text=True)
+    if r.returncode == 0:
+        sys.exit(f"error: {SK_REL} is TRACKED by git — writing a real secret there would publish it.\n"
+                 f"  fix: git rm --cached {SK_REL}   (it is already listed in .gitignore)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Generate the Ed25519 control signing keypair.")
     ap.add_argument("--out-dir", default=REPO, help="repo root to write into (default: this repo)")
@@ -68,6 +80,7 @@ def main():
                     help="do NOT git-skip-worktree the secret (default protects it from commit)")
     a = ap.parse_args()
 
+    refuse_if_tracked(a.out_dir)
     seed, pub = gen_keypair()
     sk64 = seed + pub
     assert len(sk64) == 64 and len(pub) == 32 and pub == sk64[32:64], "malformed keypair"
@@ -79,15 +92,12 @@ def main():
     print(f"wrote {sk_path}")
     print(f"wrote {pk_path}")
 
-    # Protect the secret from accidental commit when writing to the real repo.
+    # The secret is gitignored (and refuse_if_tracked() proved it is not tracked), so it cannot
+    # be committed by accident. Confirm that out loud rather than relying on the operator's memory.
     if not a.no_skip and os.path.abspath(a.out_dir) == REPO:
-        r = subprocess.run(["git", "update-index", "--skip-worktree", SK_REL],
-                           cwd=REPO, capture_output=True, text=True)
-        if r.returncode == 0:
-            print(f"  git: skip-worktree set on {SK_REL} -- your secret stays local")
-        else:
-            print(f"  note: could not skip-worktree {SK_REL} (git absent or file untracked); "
-                  f"do NOT commit it")
+        r = subprocess.run(["git", "check-ignore", "-q", SK_REL], cwd=REPO, capture_output=True)
+        print(f"  git: {SK_REL} is gitignored -- your secret stays local" if r.returncode == 0
+              else f"  WARNING: {SK_REL} is NOT gitignored -- add it to .gitignore before committing")
 
     print("\nNEXT: rebuild + reflash EVERY board (decoys bake the new public key, the CYD the new "
           "secret) and re-enroll the fleet, or the CYD's signatures won't verify.")
