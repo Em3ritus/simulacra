@@ -48,17 +48,23 @@ static uint32_t decayed(uint32_t x)             // subtract 1/DEN, but always at
 
 void rf_model_decay(rf_model_t *m)
 {
+    // Every histogram bin below must use decayed() (floor-to-nonzero), not a plain x -= x/DEN: for
+    // x in 1..RF_DECAY_DEN-1 that division truncates to 0, so the subtraction is a no-op and the
+    // bin sticks at that value forever -- a handful of stray low counts from a vendor/interval/RSSI/
+    // PDU bin that's since gone silent never actually ages out, quietly biasing the "recent
+    // environment" model this function's own contract promises to maintain. count/other_count
+    // already used decayed() for exactly this reason; the four histogram arrays didn't.
     for (size_t i = 0; i < RF_VENDOR_SLOTS; i++) {
         rf_vendor_t *v = &m->vendors[i];
         if (v->count == 0) continue;
         v->count = decayed(v->count);
-        for (size_t b = 0; b < RF_ITVL_BINS; b++) v->itvl_bins[b] -= v->itvl_bins[b] / RF_DECAY_DEN;
+        for (size_t b = 0; b < RF_ITVL_BINS; b++) v->itvl_bins[b] = decayed(v->itvl_bins[b]);
         if (v->count == 0) { v->company_id = 0; memset(v->itvl_bins, 0, sizeof v->itvl_bins); }  // free the slot
     }
     if (m->other_count) m->other_count = decayed(m->other_count);
-    for (size_t b = 0; b < RF_ITVL_BINS; b++) m->other_itvl_bins[b] -= m->other_itvl_bins[b] / RF_DECAY_DEN;
-    for (size_t b = 0; b < RF_RSSI_BINS; b++) m->rssi_bins[b] -= m->rssi_bins[b] / RF_DECAY_DEN;
-    for (size_t b = 0; b < RF_PDU_BINS; b++)  m->pdu_bins[b]  -= m->pdu_bins[b]  / RF_DECAY_DEN;
+    for (size_t b = 0; b < RF_ITVL_BINS; b++) m->other_itvl_bins[b] = decayed(m->other_itvl_bins[b]);
+    for (size_t b = 0; b < RF_RSSI_BINS; b++) m->rssi_bins[b] = decayed(m->rssi_bins[b]);
+    for (size_t b = 0; b < RF_PDU_BINS; b++)  m->pdu_bins[b]  = decayed(m->pdu_bins[b]);
 }
 
 void rf_model_observe(rf_model_t *m, uint16_t company_id, int8_t rssi,
