@@ -45,6 +45,7 @@ static const char *VTAG = "vbat";
 static i2c_master_dev_handle_t s_dev;
 static bool s_present;
 static int  s_mv = -1, s_soc = -1;
+static uint8_t s_fail_streak;   // consecutive sample() calls where BOTH regs failed to read
 
 static int rd_reg(uint8_t reg, uint16_t *out)
 {
@@ -53,11 +54,27 @@ static int rd_reg(uint8_t reg, uint16_t *out)
     *out = (uint16_t)((b[0] << 8) | b[1]);   // MAX17048 is big-endian
     return 0;
 }
+// ensure_present() only ever sets s_present=true (never re-checks), so a gauge that later stops
+// answering -- battery unplugged, I2C glitch, gauge browned out -- used to leave s_present latched
+// true forever with the last-known s_mv/s_soc reported as current, indistinguishable from a live
+// reading. Reset the latch after a few straight total-failure samples so callers correctly fall
+// back to "absent" instead of a frozen stale value.
 static void sample(void)
 {
     uint16_t v, s;
-    if (rd_reg(REG_VCELL, &v) == 0) s_mv  = (int)((uint32_t)v * 5 / 64);   // 78.125 uV = 5/64 mV
-    if (rd_reg(REG_SOC,   &s) == 0) s_soc = (int)(s / 256);
+    bool ok_v = (rd_reg(REG_VCELL, &v) == 0);
+    bool ok_s = (rd_reg(REG_SOC,   &s) == 0);
+    if (ok_v) s_mv  = (int)((uint32_t)v * 5 / 64);   // 78.125 uV = 5/64 mV
+    if (ok_s) {
+        int soc = (int)(s / 256);
+        s_soc = soc > 100 ? 100 : soc;   // MAX17048 SOC can read a few % over 100 near full charge
+    }
+    if (ok_v || ok_s) {
+        s_fail_streak = 0;
+    } else if (++s_fail_streak >= 3) {
+        s_present = false; s_mv = -1; s_soc = -1; s_fail_streak = 0;
+        ESP_LOGW(VTAG, "MAX17048 stopped answering -- treating as absent");
+    }
 }
 void vbat_init(void)
 {
