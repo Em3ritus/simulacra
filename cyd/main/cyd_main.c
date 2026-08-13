@@ -30,6 +30,7 @@
 #include "sig_db.h"
 #include "sig_wire.h"
 #include "sig_seed.h"
+#include "sig_match.h"    // sig_regate() -- re-validate an SD-loaded signature before it enters RAM
 #include "esp_wifi.h"
 #include "esp_now.h"
 #include "esp_event.h"
@@ -395,8 +396,22 @@ static void sig_db_init(void)
             static threat_sig_t tmp[SIG_DB_CAP]; uint16_t cnt = 0, ver = 0;   // static: avoid main-task stack overflow
             if (n && sig_db_open(blob, n, tmp, &cnt, &ver, s_sigdb_key) == 0 &&
                 ver >= s_sigdb_ver && cnt <= SIG_DB_CAP) {
-                memcpy(s_sigdb, tmp, cnt * sizeof(threat_sig_t)); s_sigdb_n = cnt; s_sigdb_ver = ver;
-                ESP_LOGW(TAG, "sigdb: loaded v%u (%u sigs) from card", (unsigned)ver, (unsigned)cnt);
+                // sig_db_open only proves the blob is authentic (AES-GCM tag verified) -- it says
+                // nothing about whether pat_off/pat_len/enum fields inside each record are actually
+                // in-bounds. Every other signature-ingestion path in this codebase re-gates before
+                // trusting a record ("never trust the wire" -- sig_store.c); this SD-card path is the
+                // one place that didn't, relying solely on GCM auth. Not currently reachable to an
+                // OOB read (sig_match() is never called on this local s_sigdb copy today -- it's only
+                // re-sealed back to the card or re-broadcast, both flat struct copies), but the GCM
+                // key here is derived from the firmware-embedded SIMULACRA_ESPNOW_KEY, not a
+                // per-device secret, so anyone with the firmware/source can forge an
+                // authentically-sealed card. Re-gate to close the gap regardless of what future code
+                // ends up reading s_sigdb directly.
+                uint16_t kept = 0;
+                for (uint16_t i = 0; i < cnt; i++) if (sig_regate(&tmp[i])) tmp[kept++] = tmp[i];
+                memcpy(s_sigdb, tmp, kept * sizeof(threat_sig_t)); s_sigdb_n = kept; s_sigdb_ver = ver;
+                ESP_LOGW(TAG, "sigdb: loaded v%u (%u/%u sigs regated) from card",
+                         (unsigned)ver, (unsigned)kept, (unsigned)cnt);
             }
         }
     }

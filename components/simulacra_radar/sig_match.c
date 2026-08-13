@@ -27,6 +27,15 @@ bool sig_regate(const threat_sig_t *s)
 
 static bool one_match(const sig_adv_fields_t *adv, const threat_sig_t *s)
 {
+    // pat_len > SIG_PAT_MAX would read past s->mask[]/s->pattern[] (both fixed SIG_PAT_MAX-byte
+    // arrays) below -- callers are contractually required to run sig_regate() first (sig_match.h
+    // says so explicitly), which already rejects this, but the matcher's own safety shouldn't
+    // depend entirely on every future caller remembering that. One found path already didn't
+    // (the CYD's SD-card signature-DB load skips sig_regate -- not currently reachable to here
+    // since sig_match is never called on that local copy today, but a defensive clamp here makes
+    // the matcher unconditionally safe regardless of caller discipline, at negligible cost).
+    if (s->pat_len > SIG_PAT_MAX) return false;
+
     if (s->company_id != 0xFFFF && adv->company_id != s->company_id) return false;
     if (s->svc_uuid16 != 0x0000 && adv->svc_uuid16 != s->svc_uuid16) return false;
     if (s->addr_type_mask != 0 && !(s->addr_type_mask & adv->addr_type)) return false;
