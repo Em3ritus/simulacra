@@ -145,13 +145,44 @@ static esp_err_t h_control(httpd_req_t *r)
     char body[128];
     int len = r->content_len < sizeof(body)-1 ? (int)r->content_len : (int)sizeof(body)-1;
     int off = 0;
+    // esp_http_server runs one worker task by default -- this handler blocking blocks the WHOLE
+    // server, not just this connection, and webui_run_config_window's httpd_stop() at teardown
+    // blocks until any in-flight handler returns. Retrying HTTPD_SOCK_ERR_TIMEOUT with no bound
+    // let a client that opens the POST and then sends few/no body bytes (classic slow-loris) wedge
+    // this loop forever, which wedged httpd_stop() forever, which silently defeated the config-
+    // window hard cap added earlier -- the whole boot sequence (blocked on this call) never
+    // proceeds. Bound by wall-clock elapsed time, not just byte count, so a stalled connection
+    // can't out-wait the byte-count check by trickling one byte just often enough.
+    uint32_t recv_deadline_ms = (uint32_t)(esp_timer_get_time()/1000) + 5000u;
     while (off < len) {                            // httpd_req_recv may return a short read
         int got = httpd_req_recv(r, body + off, len - off);
-        if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
+        if (got == HTTPD_SOCK_ERR_TIMEOUT) {
+            if ((uint32_t)(esp_timer_get_time()/1000) >= recv_deadline_ms) return httpd_resp_send_500(r);
+            continue;
+        }
         if (got <= 0) return httpd_resp_send_500(r);
         off += got;
     }
     body[off] = '\0';
+
+    // content_len can exceed body[]'s capacity (len above is clamped to sizeof(body)-1); the excess
+    // was never read off the socket. On a keep-alive connection that leftover would be misread as
+    // the start of the next request. Drain and discard it, bounded by both a byte budget and the
+    // same wall-clock deadline as the read loop above (a huge claimed content_len must not become
+    // its own hang).
+    if ((size_t)r->content_len > (size_t)len) {
+        size_t remaining = (size_t)r->content_len - (size_t)len;
+        const size_t drain_budget = 4096;
+        char discard[64];
+        while (remaining > 0 && remaining <= drain_budget &&
+               (uint32_t)(esp_timer_get_time()/1000) < recv_deadline_ms) {
+            int want = remaining < sizeof discard ? (int)remaining : (int)sizeof discard;
+            int got = httpd_req_recv(r, discard, want);
+            if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            if (got <= 0) break;                    // connection gone / error: nothing left to drain
+            remaining -= (size_t)got;
+        }
+    }
 
     char act[32];
     if (!action_of(body, act, sizeof act)) return httpd_resp_send_500(r);
