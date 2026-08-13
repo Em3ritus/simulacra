@@ -74,5 +74,16 @@ void sniff_start(void)
     esp_wifi_set_promiscuous_rx_cb(rx_cb);
     ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
     xTaskCreate(sniff_task, "sniff", 4096, NULL, 5, NULL);
+    // SNIFF_FIXED_CH defaults to 1 (parked) when not explicitly overridden via -D, which is the
+    // shipped default for a plain -DSIMULACRA_SNIFF=1 verification build -- the banner used to
+    // unconditionally claim the hop-1/6/11 behavior regardless, so an operator running the default
+    // build would see only channel-1 traffic and could wrongly read that as "decoys aren't probing
+    // on 6/11" or "6/11 are quiet" instead of "6/11 were never scanned." Match sniff_task's own
+    // #if SNIFF_FIXED_CH split so the one-time startup banner tells the truth for whichever mode
+    // actually compiled in.
+#if SNIFF_FIXED_CH
+    ESP_LOGW(TAG, "wifi probe sniffer started (parked ch%d)", SNIFF_FIXED_CH);
+#else
     ESP_LOGW(TAG, "wifi probe sniffer started (2.4 GHz hop 1/6/11)");
+#endif
 }
