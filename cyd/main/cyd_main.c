@@ -298,7 +298,28 @@ static uint8_t      s_sigdb_key[32];
 
 static void learn_db_load(void)
 {
+    // Derive from the control secret (SIMULACRA_CTRL_SK), not the published-as-non-secret
+    // SIMULACRA_ESPNOW_KEY placeholder -- matches fleet_db.c's own seal_key() pattern for
+    // fleet.db. The README used to call this SD library "encrypted-at-rest" while every build
+    // (including the SIMULACRA_FLEET_PROVISION regime marketed as the secure one) sealed it with
+    // a key anyone with the firmware/source can compute. Every real CYD build defines
+    // SIMULACRA_CONFIG_CTRL (CI, the web flasher, and the README's own build command all pass it;
+    // there is no shipped build that doesn't), so SIMULACRA_CTRL_SK is always available in
+    // practice -- the #else keeps the theoretical unguarded config buildable rather than a hard
+    // compile error, at that config's existing (already-documented, already-accepted) lower
+    // security posture. NOT a boot-order hazard like fleet_db_key() would be here: SIMULACRA_CTRL_SK
+    // is a compile-time constant, available immediately, unlike the provisioned fleet key which
+    // isn't loaded from SD until fleet_db_load() runs later in boot.
+    //
+    // Rotating this key means any SD card sealed under the old placeholder-derived key fails
+    // GCM auth on the next boot -- that already falls through the existing, already-exercised
+    // "open failed (corrupt/foreign) -> rebuild from sync" path below, not a crash or silent
+    // corruption; the library rebuilds from the live fleet sync and re-seals correctly from then on.
+#if defined(SIMULACRA_CONFIG_CTRL) || defined(SIMULACRA_FLEET_PROVISION)
+    learn_db_derive_key(SIMULACRA_CTRL_SK, s_db_key);
+#else
     learn_db_derive_key(SIMULACRA_ESPNOW_KEY, s_db_key);
+#endif
     if (!s_sd_ok) return;
     FILE *f = fopen(LEARN_DB_PATH, "rb");
     if (!f) { ESP_LOGW(TAG, "learndb: none on card (fresh)"); return; }
@@ -383,7 +404,13 @@ static void sig_db_save_card(void)
 
 static void sig_db_init(void)
 {
+    // See the matching comment in learn_db_load() -- same reasoning, same key material, same
+    // rotation-safety argument (a stale-keyed card just falls back to the compiled seed below).
+#if defined(SIMULACRA_CONFIG_CTRL) || defined(SIMULACRA_FLEET_PROVISION)
+    sig_db_derive_key(SIMULACRA_CTRL_SK, s_sigdb_key);
+#else
     sig_db_derive_key(SIMULACRA_ESPNOW_KEY, s_sigdb_key);
+#endif
     s_sigdb_n = sig_seed_copy(s_sigdb, SIG_DB_CAP);   // baseline = compiled seed
     s_sigdb_ver = sig_seed_version();
     if (s_sd_ok) {

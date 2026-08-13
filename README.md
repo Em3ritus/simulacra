@@ -88,11 +88,11 @@ Roles are selected at build time so one firmware tree serves every board.
   — drawn from a fixed pool of ubiquitous open SSIDs (xfinitywifi, attwifi, eduroam …), **never an
   observed or local one** — so the fake phones blend with the real phones probing the same hotspots.
 - On-device **self-learning** of ambient device *shapes* into new decoy archetypes (structure-only,
-  Law-3 gated), synced across the fleet and persisted to an AES-GCM-sealed SD library on Vigil — real
-  encryption, but currently keyed from a published, non-secret placeholder constant in the baked-key
-  regime, and (a gap being tracked, not yet fixed) from the same placeholder even in the provisioned
-  regime as of this writing. Impact is bounded — the library holds structure-only skeletons, no
-  bystander identities — but don't treat the SD card itself as sensitive yet.
+  Law-3 gated), synced across the fleet and persisted to an AES-GCM-sealed SD library on Vigil, keyed
+  from the CONTROL secret in the provisioned regime (`-DSIMULACRA_FLEET_PROVISION=1` — rotates
+  automatically with `tools/gen_ctrl_key.py`). The baked-key demo regime still keys it from a
+  published, non-secret placeholder constant — an accepted tradeoff for that regime, matching its
+  documented "shared key, not private" posture elsewhere.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
 - **Signed fleet control:** Vigil pushes Ed25519-signed behaviour presets (PAUSE / STEALTH /
   NORMAL / DENSE / MAX / **TURBO**) to every decoy over ESP-NOW — and the console shows which preset
