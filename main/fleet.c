@@ -74,6 +74,7 @@ size_t fleet_node_count(uint32_t now_ms)
 
 size_t fleet_macs_pack(uint8_t *out, size_t out_max, const uint8_t (*macs)[6], size_t n)
 {
+    if (out_max < 1) return 0;              // nothing to write, and out_max-1 below would underflow
     if (n > 255) n = 255;
     if (1 + n * 6 > out_max) n = (out_max - 1) / 6;
     out[0] = (uint8_t)n;
