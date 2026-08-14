@@ -443,6 +443,13 @@ void esp_now_link_start(void)
     esp_now_add_peer(&peer);
     esp_now_register_recv_cb(on_recv);
     coexist_set_listen_channel(SIMULACRA_ESPNOW_CHANNEL);  // park the radio on ch1 between probe bursts
-    xTaskCreate(espnow_task, "espnow", 4096, NULL, 3, NULL);
+    // 4096 was too tight: a real hardware pairing session under SIMULACRA_FLEET_PROVISION crashed
+    // with "Stack protection fault" in this task on real hardware, reliably, every boot -- the
+    // enrollment handshake's Ed25519 verify (OFFER) and X25519/crypto_box operations (REQUEST/GRANT)
+    // are meaningfully stack-heavier than the steady-state AES-GCM open/seal this task otherwise
+    // does, and this exact path had never actually been hardware-tested with real enrollment traffic
+    // flowing until this session. coexist_task budgets 8192 for a comparable (arguably lighter)
+    // crypto load; match it here rather than guess a smaller number.
+    xTaskCreate(espnow_task, "espnow", 8192, NULL, 3, NULL);
     ESP_LOGW(ETAG, "responder up (ch=%d, listen-only until requested)", SIMULACRA_ESPNOW_CHANNEL);
 }
