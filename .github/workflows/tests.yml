@@ -16,6 +16,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install Python test dependencies
+        # tools/tests/test_gen_ctrl_key.py needs PyNaCl (or cryptography) to exercise gen_ctrl_key.py's
+        # real keypair generation -- CI never had it installed, so every run since this workflow's
+        # creation failed at that step and (being the default fail-fast step order) never reached the
+        # web manifest tests below. Silent for days: the job showed red, but for the wrong reason.
+        run: pip install pynacl
+
       - name: Build the host harnesses
         run: |
           for d in probe_audit decoy_audit pcap_learn radar_audit; do
@@ -43,6 +50,9 @@ jobs:
           echo "::endgroup::"
 
       - name: Run the web manifest tests
+        # Independent of the tools/ suites above: always run this even if an earlier step in this job
+        # failed, so a break elsewhere can never again silently mask the web-flasher's own tests.
+        if: always()
         run: python -m unittest discover -s web -p 'test_*.py'
 
   # The on-target self-test never runs in CI (it needs hardware), but it must keep COMPILING as the
