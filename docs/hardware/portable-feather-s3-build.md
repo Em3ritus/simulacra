@@ -1,5 +1,11 @@
 # Portable Simulacra — ESP32-S3 build
 
+> **⚠️ Historical — not the current architecture.** This was an early hardware exploration.
+> The project has since settled on the **ESP32-C5 (Ward) / ESP32-C6 (Shade) / CYD ESP32
+> (Vigil)** roles described in the main [README](../../README.md#architecture--the-nodes) —
+> an ESP32-S3 board is not a supported target for building Simulacra today. Kept for
+> reference only.
+
 A battery-powered, place-and-go Simulacra node. The radio work (BLE synthetic
 population now; Wi-Fi capture/inject later) all runs on the S3's single 2.4 GHz
 radio — **no SDR or extra RF hardware**. This build is **solder-free**: every
