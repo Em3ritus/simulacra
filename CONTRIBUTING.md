@@ -4,11 +4,10 @@
 build/flash problems, console behavior that doesn't match the [wiki](https://github.com/Em3ritus/simulacra/wiki)
 or [README](README.md), and hardware you'd like to see supported.
 
-**Pull requests aren't being merged right now.** Simulacra is currently
-**unlicensed — all rights reserved** (see [License](README.md#license)), and until that's settled,
-accepting outside code raises questions about whose work it even is. Feel free to fork and hack on
-it — just don't expect a PR to land upstream yet. This will change once licensing is sorted; if you
-want to know when, watch the repo or check back.
+**Pull requests aren't being merged right now.** Simulacra is [GPL-3.0 licensed](README.md#license),
+but the project is still young and solo-maintained, and outside PRs aren't being accepted yet. Feel
+free to fork and hack on it — just don't expect a PR to land upstream for now. Watch the repo or
+check back if you want to know when that changes.
 
 ## Filing a good bug report
 

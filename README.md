@@ -13,7 +13,7 @@ root@simulacra:~# ./summon --crowd --bury-signal
 ```
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-pending-8a8a8a?style=flat-square" alt="License pending">
+  <img src="https://img.shields.io/badge/license-GPL--3.0-1f9e6a?style=flat-square" alt="License: GPL-3.0">
   <img src="https://img.shields.io/badge/platform-ESP32--C5%20·%20C6%20·%20CYD-9d4edd?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/ESP--IDF-5.4%20·%205.5-1f9e6a?style=flat-square" alt="ESP-IDF">
   <img src="https://img.shields.io/badge/radios-BLE%20·%20Wi--Fi-14a06a?style=flat-square" alt="Radios">
@@ -281,7 +281,7 @@ system.
 
 ## License
 
-**Currently unlicensed — all rights reserved.** Simulacra is derived from
-[0xXyc/splinter](https://github.com/0xXyc/splinter), which is itself unlicensed; those upstream
-portions remain under their original author's terms. A permissive license is intended once the
-upstream licensing is settled — until then, no redistribution or reuse rights are granted.
+**[GNU GPL v3.0](LICENSE).** Simulacra is derived from [0xXyc/splinter](https://github.com/0xXyc/splinter),
+which carries no license file of its own — its author has confirmed directly that splinter was
+written for others to build on. The current codebase is almost entirely original work; the small
+remainder still tracing back to those early files is covered by that same permission.
