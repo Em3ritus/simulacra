@@ -34,8 +34,8 @@ over an encrypted ESP-NOW link.
 [Architecture](#architecture--the-nodes) · [Features](#features) ·
 [Security model](#security-model) · [Hardware](#hardware) · [Build & flash](#build--flash) ·
 [Repo layout](#repository-layout) · [Offline tools](#offline--bench-tools) ·
-[Recent updates](#recent-updates) · [Credits](#credits) · [License](#license) ·
-**[Wiki](https://github.com/Em3ritus/simulacra/wiki)**
+[Recent updates](#recent-updates) · [Contributing](#contributing) · [Credits](#credits) ·
+[License](#license) · **[Wiki](https://github.com/Em3ritus/simulacra/wiki)**
 
 ---
 
@@ -267,6 +267,11 @@ Newest first — full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking
   from a web page — ESP Web Tools over Web Serial, auto-detecting the board and installing the right
   role. A CI action builds the three firmwares and deploys the flasher to GitHub Pages on every
   firmware change, so no binaries ever live in git.
+
+## Contributing
+
+**Issues welcome** — bug reports, questions, hardware requests. **PRs aren't being merged yet** — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for why and what to expect.
 
 ## Credits
 
