@@ -140,6 +140,10 @@ Roles are selected at build time so one firmware tree serves every board.
 - **ESP32-C5** (Ward) and **ESP32-C6** (Shade) decoys.
 - **ESP32** "Cheap Yellow Display" (ILI9341 + XPT2046 touch + microSD) for Vigil.
 
+Specific boards and part numbers: see [`web/README.md`](web/README.md)'s board table. For what
+every screen and setting on the Vigil console does once it's flashed, see the
+**[project wiki](https://github.com/Em3ritus/simulacra/wiki)**.
+
 ## Build & flash
 
 ### Flash from your browser — no toolchain (starter fleet)

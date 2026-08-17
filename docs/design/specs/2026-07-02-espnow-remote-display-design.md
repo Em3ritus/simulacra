@@ -16,7 +16,8 @@ decoy telemetry — without turning the anti-tracking device into a linkable RF 
 
 The CYD is a classic **ESP32-D0WD-V3** (verified on the attached unit: dual-core Xtensa, Wi-Fi +
 BT **4.2**, 4 MB flash). BLE 4.2 has **no extended advertising**, which the entire churn engine
-depends on (4 concurrent ext-adv instances — the same reason the ESP32-S3 was rejected). So the
+depends on (4 concurrent ext-adv instances — the same reason an earlier hardware candidate was
+rejected). So the
 CYD **cannot run the decoy**; it is a display/receiver only. The decoy stays on the C5/C6.
 
 ## Locked decisions
