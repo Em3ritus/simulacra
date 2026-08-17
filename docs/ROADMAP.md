@@ -54,7 +54,7 @@ device. These specifically target the two layers a simple decoy can't beat: **RF
 and **cross-modal correlation**.*
 
 - **M9 — The Coven (multi-node mesh).** Several coordinated nodes with **heterogeneous hardware**
-  (C6 / C5 / S3 / nRF) so the decoys carry genuinely distinct hardware RF fingerprints *and*
+  so the decoys carry genuinely distinct hardware RF fingerprints *and*
   spatial / independent-motion diversity a single emitter physically cannot fake. The single
   biggest hardening — one radio can't forge N fingerprints; many radios can.
 - **M10 — Cross-protocol personas.** Bind a BLE identity + a Wi-Fi identity (later sub-GHz) into
@@ -105,8 +105,7 @@ and **cross-modal correlation**.*
 - **In-hand fleet:** ESP32-**C5** (dual-band Wi-Fi 6) ×2, SparkFun Thing Plus ESP32-**C6**
   (onboard charging + MAX17048 fuel gauge) ×1, and an ESP32 "Cheap Yellow Display" (**Vigil**) ×1.
 - **Firmware builds + HW-validated:** **C6** (✅ verified) and **C5** (✅ HW-validated — extended
-  advertising works; builds with `--preview`). **S3** builds but its older BLE controller makes
-  ext-adv unreliable (not a target).
+  advertising works; builds with `--preview`).
 - **Multi-node note:** the fleet can be physically separated for mesh work, but only one node is
   USB-tethered (flash + serial) at a time; a second runs headless on a powerbank, with Vigil as an
   always-on ESP-NOW observation point.
