@@ -20,8 +20,22 @@ static void rx_cb(void *buf, wifi_promiscuous_pkt_type_t type)
         uint32_t bnow = (uint32_t)(esp_timer_get_time() / 1000);
         if (fleet_mac_excluded(bssid, bnow)) return;   // never flag our own fleet
         uint8_t cls, cat;
-        if (surveil_oui_match(bssid, &cls, &cat))
+        if (surveil_oui_match(bssid, &cls, &cat)) {
             surveil_note(surveil_hash(bssid), p->rx_ctrl.rssi, cls, cat);  // Law 1: hash, MAC dropped
+            return;
+        }
+        // A beacon's own SSID vs the watchlist -- e.g. a Flock device's "Flock-<suffix>" maintenance
+        // hotspot (CVE-2025-47818). Beacons carry 12 fixed bytes (timestamp+interval+capability)
+        // between the 24-byte mgmt header and the IEs, unlike a probe request, so the SSID IE sits at
+        // offset 36 here, not 24.
+        if (p->rx_ctrl.sig_len >= 38 && f[36] == 0x00) {           // first IE is the SSID element (id 0)
+            uint8_t slen = f[37];
+            if (slen > 0 && p->rx_ctrl.sig_len >= (uint32_t)(38 + slen)) {
+                uint8_t scls, scat;
+                if (surveil_ssid_match(f + 38, slen, &scls, &scat))
+                    surveil_note(surveil_hash(bssid), p->rx_ctrl.rssi, scls, scat);  // Law 1: hash, MAC dropped
+            }
+        }
         return;
     }
     if (f[0] != 0x40) return;                 // frame control: probe request

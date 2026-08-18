@@ -9,9 +9,10 @@
 // sig_category_t values) on a hit; false otherwise. Pure.
 bool surveil_oui_match(const uint8_t mac[6], uint8_t *class_id, uint8_t *category);
 
-// Match an SSID (exact, case-sensitive) against the surveillance-SSID watchlist. Returns true (and
-// fills class_id/category) on a hit; false otherwise. Pure. `ssid` is NOT NUL-terminated; `len` is the
-// SSID element length.
+// Match an SSID against the surveillance-SSID watchlist -- some entries are exact (a saved/probed
+// network name), others are a prefix (a device's own hotspot, whose suffix varies per unit). Returns
+// true (and fills class_id/category) on a hit; false otherwise. Pure, case-sensitive. `ssid` is NOT
+// NUL-terminated; `len` is the SSID element length.
 bool surveil_ssid_match(const uint8_t *ssid, uint8_t len, uint8_t *class_id, uint8_t *category);
 
 // Seed the per-session hash salt (call once, e.g. surveil_init(esp_random())).
