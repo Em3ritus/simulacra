@@ -48,3 +48,42 @@ class SurveilSsid(unittest.TestCase):
     def test_length_prefix_does_not_match(self):
         # exact-length match: an 8-char prefix of the 9-char name must NOT match
         self.assertEqual(ssid_match("test_flc")[0], 0)
+
+    def test_flock_hotspot_prefix_matches(self):
+        # real observed instance from production firmware (GainSec / BirdShot DEF CON 34 research),
+        # CVE-2025-47818 -- SIG_CLASS_FLOCK = 3, SIG_CAT_CAMERA = 1
+        self.assertEqual(ssid_match("Flock-230503"), (1, 3, 1))
+
+    def test_flock_prefix_matches_bare_dash(self):
+        self.assertEqual(ssid_match("Flock-"), (1, 3, 1))
+
+    def test_flock_prefix_requires_the_dash(self):
+        # "Flock" alone, with nothing after it, is not the hotspot's naming convention
+        self.assertEqual(ssid_match("Flock")[0], 0)
+
+    def test_flock_prefix_is_case_sensitive(self):
+        self.assertEqual(ssid_match("flock-230503")[0], 0)
+
+
+def name_match(s):
+    out = subprocess.check_output([EXE, "--surveilname", s], text=True).split()
+    return int(out[0]), int(out[1]), int(out[2])   # matched(0/1), class_id, category
+
+
+@unittest.skipUnless(os.path.exists(EXE), "probe_dump not built")
+class SurveilName(unittest.TestCase):
+    def test_flock_substring_matches_camera(self):
+        # Raven's own BLE advertised local name contains "flock" (GainSec / BirdShot DEF CON 34
+        # research, raven_ble.py's discovery filter, confirmed against real hardware).
+        # SIG_CLASS_FLOCK = 3, SIG_CAT_CAMERA = 1
+        self.assertEqual(name_match("Flock Raven-1A2B"), (1, 3, 1))
+
+    def test_matches_is_case_insensitive(self):
+        self.assertEqual(name_match("FLOCK-DEVICE")[0], 1)
+        self.assertEqual(name_match("myflockthing")[0], 1)
+
+    def test_other_name_does_not_match(self):
+        self.assertEqual(name_match("Galaxy Buds")[0], 0)
+
+    def test_empty_name_does_not_match(self):
+        self.assertEqual(name_match("")[0], 0)

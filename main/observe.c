@@ -3,6 +3,7 @@
 #include "learn.h"
 #include "sig_match.h"
 #include "sig_store.h"
+#include "surveil_ble_name.h"
 #include "fleet.h"
 #include "esp_log.h"
 
@@ -205,6 +206,18 @@ static int observe_gap_event(struct ble_gap_event *event, void *arg)
             .svc_data = svcd, .svc_len = svcd_len,
         };
         if (sig_match(&sf, sig_store_db(), sig_store_count(), &hit)) hitp = &hit;
+    }
+
+    // Advertised-local-name surveillance-vendor check (independent of the byte-pattern DB above --
+    // doesn't need sig_store seeded, and covers gear identifiable by name rather than a structured
+    // mfg/service-data field, e.g. Flock Raven -- see surveil_ble_name.h). Only runs if the byte-
+    // pattern DB didn't already produce a hit, so a device never double-reports.
+    if (!hitp && parsed && f.name && f.name_len > 0) {
+        uint8_t nclass, ncat;
+        if (surveil_name_match(f.name, f.name_len, &nclass, &ncat)) {
+            hit = (sig_hit_t){ .sig_id = 0xFFFF, .category = ncat, .class_id = nclass, .confidence = 75 };
+            hitp = &hit;
+        }
     }
 
     // legacy_event_type is the PDU type for legacy ads; non-legacy ext ads clamp to the last bin.

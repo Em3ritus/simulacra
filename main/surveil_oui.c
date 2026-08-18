@@ -25,19 +25,30 @@ bool surveil_oui_match(const uint8_t mac[6], uint8_t *class_id, uint8_t *categor
     return false;
 }
 
-typedef struct { const char *ssid; uint8_t len; uint8_t class_id; uint8_t category; } surveil_ssid_t;
+typedef struct { const char *ssid; uint8_t len; bool prefix; uint8_t class_id; uint8_t category; } surveil_ssid_t;
 
-// Surveillance network names probed for by known gear. test_flck: Flock Falcon/Sparrow saved dev
-// network (CVE-2025-59409) -- units probe for it when Wi-Fi is up. Exact, case-sensitive.
+// Surveillance network names, either probed for (a saved dev/test network) or broadcast (a device's
+// own hotspot -- suffix varies per unit, hence prefix match). All exact/prefix, case-sensitive.
+//   test_flck: Flock Falcon/Sparrow saved dev network (CVE-2025-59409) -- units probe for it when
+//     Wi-Fi is up.
+//   "Flock-": Flock devices' own local maintenance hotspot (CVE-2025-47818, hardcoded Wi-Fi
+//     SSID/password) -- confirmed both in BirdShot's own detection code and directly in extracted
+//     firmware strings ("Flock-230503"), and named explicitly in the DEF CON 34 talk as the trigger
+//     condition for the disclosed local-wireless attack chain (GainSec, "Bird Hunting Season: The
+//     Final Flight"). Broadcast by the device itself, so this fires on the beacon path, not probes.
 static const surveil_ssid_t SSID_WATCH[] = {
-    { "test_flck", 9, SIG_CLASS_FLOCK, SIG_CAT_CAMERA },
+    { "test_flck", 9, false, SIG_CLASS_FLOCK, SIG_CAT_CAMERA },
+    { "Flock-",    6, true,  SIG_CLASS_FLOCK, SIG_CAT_CAMERA },
 };
 #define SSID_WATCH_N (sizeof SSID_WATCH / sizeof SSID_WATCH[0])
 
 bool surveil_ssid_match(const uint8_t *ssid, uint8_t len, uint8_t *class_id, uint8_t *category)
 {
     for (size_t i = 0; i < SSID_WATCH_N; i++) {
-        if (len == SSID_WATCH[i].len && memcmp(ssid, SSID_WATCH[i].ssid, len) == 0) {
+        bool hit = SSID_WATCH[i].prefix
+            ? (len >= SSID_WATCH[i].len && memcmp(ssid, SSID_WATCH[i].ssid, SSID_WATCH[i].len) == 0)
+            : (len == SSID_WATCH[i].len && memcmp(ssid, SSID_WATCH[i].ssid, len) == 0);
+        if (hit) {
             if (class_id) *class_id = SSID_WATCH[i].class_id;
             if (category) *category = SSID_WATCH[i].category;
             return true;

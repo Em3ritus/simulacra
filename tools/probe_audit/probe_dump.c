@@ -8,6 +8,7 @@
 #include "wifi_density.h"
 #include "ssid_pool.h"
 #include "surveil_oui.h"
+#include "surveil_ble_name.h"
 
 /*
  * Host dumper for the probe-request archetype builder.
@@ -421,6 +422,14 @@ int main(int argc, char **argv)
         const char *s = argc > 2 ? argv[2] : "";
         uint8_t cls = 255, cat = 255;
         int m = surveil_ssid_match((const uint8_t *)s, (uint8_t)strlen(s), &cls, &cat) ? 1 : 0;
+        printf("%d %d %d\n", m, (int)cls, (int)cat);
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--surveilname") == 0) {   // --surveilname <ascii_ble_name>
+        const char *s = argc > 2 ? argv[2] : "";
+        uint8_t cls = 255, cat = 255;
+        int m = surveil_name_match((const uint8_t *)s, (uint8_t)strlen(s), &cls, &cat) ? 1 : 0;
         printf("%d %d %d\n", m, (int)cls, (int)cat);
         return 0;
     }
