@@ -365,6 +365,13 @@ static void draw_exposure(radar_gfx_t *g, const exposure_t *e){
         for(int i=0;i<n && y<300;i++){ radar_gfx_text(g, 20, y, ss[i], COL_BONE); y+=18; }
     }
 }
+static void node_health(const radar_node_view_t *nv, uint16_t *color, const char **word){
+    bool alive = nv->alive;
+    bool low_batt = alive && (nv->st->flags & 0x08);
+    bool degraded = alive && (nv->st->flags & 0x04);
+    *color = !alive ? COL_ASH : (low_batt || degraded) ? COL_WARD : COL_CHANNEL;
+    *word  = !alive ? "SILENT" : low_batt ? "LOW BATT" : degraded ? "DEGRADED" : "CHANNEL";
+}
 static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_count, int sel){
     if (sel < 0 || sel >= node_count) {
         draw_header(g, "NODE");
@@ -377,10 +384,8 @@ static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_c
     draw_header(g, title);
     // subline: health word (+ liveness age when silent)
     bool alive = nv->alive;
-    bool low_batt = alive && (st->flags & 0x08);
-    bool degraded = alive && (st->flags & 0x04);
-    uint16_t sc = !alive ? COL_ASH : (low_batt || degraded) ? COL_WARD : COL_CHANNEL;
-    const char *health = !alive ? "SILENT" : low_batt ? "LOW BATT" : degraded ? "DEGRADED" : "CHANNEL";
+    uint16_t sc; const char *health;
+    node_health(nv, &sc, &health);
     radar_gfx_text(g, 8, 32, health, sc);
     if (!alive) { char ag[20]; snprintf(ag, sizeof ag, "seen %us ago", (unsigned)nv->age_s);
                   radar_gfx_text(g, 104, 32, ag, COL_ASH); }
@@ -416,6 +421,38 @@ static void draw_node(radar_gfx_t *g, const radar_node_view_t *nodes, int node_c
     row_section(g, 272, "DETECTIONS");
     snprintf(v,sizeof v,"%d",nf); row_kv(g,288,"followers",v);
     snprintf(v,sizeof v,"%d",ns); row_kv(g,304,"surveillance",v);
+}
+static void draw_nodes_list(radar_gfx_t *g, const radar_node_view_t *nodes, int node_count){
+    draw_header(g, "NODES");
+    if (node_count <= 0) {
+        radar_gfx_text(g, 16, 40, "no nodes reporting", COL_ASH);
+        return;
+    }
+    for (int i = 0; i < node_count && i < 8; i++) {
+        int y = 36 + i * 24;
+        const radar_node_view_t *nv = &nodes[i];
+        uint16_t sc; const char *health;
+        node_health(nv, &sc, &health);
+        radar_gfx_fill_rect(g, 8, y + 2, 6, 6, sc);
+        char id[8]; snprintf(id, sizeof id, "N%u", (unsigned)nv->id);
+        radar_gfx_text(g, 18, y, id, COL_BONE);
+        radar_gfx_text(g, 42, y, health, sc);
+        if (nv->alive) {
+            const radar_wire_status_t *st = nv->st;
+            char cnt[8]; snprintf(cnt, sizeof cnt, "%u", (unsigned)st->active_devices);
+            radar_gfx_text(g, 150 - (int)strlen(cnt) * 8, y, cnt, COL_BONE);
+            if (st->battery_mv) {
+                char b[16];
+                if (st->battery_pct != 0xFF)
+                    snprintf(b, sizeof b, "%u%%", (unsigned)st->battery_pct);
+                else
+                    snprintf(b, sizeof b, "%u.%02uV", (unsigned)(st->battery_mv / 1000),
+                             (unsigned)((st->battery_mv % 1000) / 10));
+                bool low_batt = (st->flags & 0x08) != 0;   // recomputed here: node_health() doesn't expose it separately
+                radar_gfx_text(g, 224 - (int)strlen(b) * 8, y, b, low_batt ? COL_WARD : COL_ASH);
+            }
+        }
+    }
 }
 static const char *cat_name(uint8_t c){
     return c==SIG_CAT_TRACKER?"TRACKER":c==SIG_CAT_CAMERA?"CAMERA":
@@ -468,6 +505,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
         else if(view==RADAR_VIEW_CONTROL) draw_control(&g,ctrl);
         else if(view==RADAR_VIEW_INFO) draw_info(&g,st,lib,sys);
         else if(view==RADAR_VIEW_EXPOSURE) draw_exposure(&g,expo);
+        else if(view==RADAR_VIEW_NODES) draw_nodes_list(&g,nodes,node_count);
         else if(view==RADAR_VIEW_NODE) draw_node(&g,nodes,node_count,sel_node);
         else if(view==RADAR_VIEW_THREAT) draw_threat(&g,st,sel_threat);
         else draw_radar(&g,st,sweep);

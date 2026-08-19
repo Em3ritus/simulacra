@@ -4,7 +4,9 @@
 // pixel framebuffer. One full-height band so each draw_* runs exactly once.
 //
 //   render_dump <view> [restless wandering bound active_devices roster target threat_count]
-//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO 8 NODE (via --node) 9 THREAT (via --threat)
+//   view: 0 HOME 1 RADAR 2 DETAIL 3 STATS 4 LIBRARY 5 CONTROL 6 INFO
+//   NODES via --nodeslist <count> [id alive active_devices battery_mv]...
+//   NODE via --node, THREAT via --threat
 //   INFO 2-page console via --info <page nodes sigver sigcount linkage libcount libcap cardmb sdok decoys target pop uptime>
 //   CONTROL live-vs-pending via --control <sel live flash clear_armed>  (live: 0-4 preset, 5 CUSTOM, 254 MIXED, 255 none)
 #include <stdio.h>
@@ -88,6 +90,29 @@ int main(int argc, char **argv)
         radar_node_view_t nodes[1] = { { (uint8_t)id, &st, alive != 0, age } };
         radar_render_view(RADAR_VIEW_NODE, &st, nodes, 1, sel, -1, 0, 0, NULL, NULL, 0,
                           nband, 320, 240, 320, flush_noop, 0);
+        return 0;
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--nodeslist") == 0) {
+        int a = 2;
+        int count = argc > a ? atoi(argv[a]) : 0; a++;
+        if (count > 8) count = 8;
+        static radar_wire_status_t sts[8];
+        static radar_node_view_t lv[8];
+        memset(sts, 0, sizeof sts);
+        for (int i = 0; i < count; i++) {
+            int id     = argc > a ? atoi(argv[a]) : i; a++;
+            int alive  = argc > a ? atoi(argv[a]) : 1; a++;
+            int active = argc > a ? atoi(argv[a]) : 0; a++;
+            int batmv  = argc > a ? atoi(argv[a]) : 0; a++;
+            sts[i].active_devices = (uint16_t)active;
+            sts[i].battery_mv = (uint16_t)batmv;
+            sts[i].battery_pct = 0xFF;
+            lv[i].id = (uint8_t)id; lv[i].st = &sts[i]; lv[i].alive = alive != 0; lv[i].age_s = 0;
+        }
+        static uint16_t lband[240 * 320];
+        radar_render_view(RADAR_VIEW_NODES, NULL, lv, count, -1, -1, 0, 0, NULL, NULL, 0,
+                          lband, 320, 240, 320, flush_noop, 0);
         return 0;
     }
 
