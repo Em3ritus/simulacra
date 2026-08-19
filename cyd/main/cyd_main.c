@@ -239,8 +239,8 @@ static bool next_ctr(uint64_t *out){
     return true;
 }
 static uint8_t s_sel_node;        // NODE view: id of the node being inspected
-static uint8_t s_home_ids[3];     // ids of the (<=3) node cards HOME last rendered, left->right
-static int     s_home_n;          // how many of s_home_ids are valid
+static uint8_t s_node_ids[FLEET_STATUS_MAX];  // ids of the (<=FLEET_STATUS_MAX) tracked nodes, nv[] order
+static int     s_node_n;                       // how many of s_node_ids are valid
 static uint32_t s_sel_threat;                       // THREAT view: hash of the threat being inspected
 static uint32_t s_threat_hashes[RADAR_MAX_THREATS]; // hashes of the threats agg last rendered, in order
 static int      s_threat_n;                          // how many of s_threat_hashes are valid
@@ -942,22 +942,27 @@ void app_main(void)
         if (edge && !modal_open) {
             if (ui.view == RADAR_VIEW_HOME) {
                 // HOME sigil grid -> jump to that view. Geometry mirrors draw_home: 2 cols split at
-                // x=120, 3 rows of 64px starting at y=104 (CIRCLE/HUNTERS / LIVING/RITES / WARDS/GRIMOIRE).
-                // The fleet strip (y 30..100) taps into the live radar. Topbar / gaps just keep awake.
-                static const radar_view_t GRID[7] = {          // 4 rows @ 48px (see draw_home)
+                // x=120, 4 rows of 66px starting at y=32 (grid reclaims the old fleet-strip's space).
+                static const radar_view_t GRID[8] = {          // 4 rows @ 66px (see draw_home)
                     RADAR_VIEW_RADAR,   RADAR_VIEW_DETAIL,     // CIRCLE   HUNTERS
                     RADAR_VIEW_STATS,   RADAR_VIEW_CONTROL,    // LIVING   RITES
                     RADAR_VIEW_LIBRARY, RADAR_VIEW_INFO,       // WARDS    GRIMOIRE
-                    RADAR_VIEW_EXPOSURE };                     // EXPOSURE (row 3, col 0)
+                    RADAR_VIEW_EXPOSURE, RADAR_VIEW_NODES };   // EXPOSURE NODES
                 radar_view_t v = RADAR_VIEW_COUNT;             // sentinel: no target
-                if (ty >= 104 && ty < 296) { int idx=((ty-104)/48)*2+(tx>=120?1:0); if (idx<7) v=GRID[idx]; }
-                else if (ty >= 30 && ty < 100) {
-                    int card = tx / 80;
-                    if (card < s_home_n) { s_sel_node = s_home_ids[card]; v = RADAR_VIEW_NODE; }
-                    else                 v = RADAR_VIEW_RADAR;   // empty strip area -> aggregate radar
-                }
+                if (ty >= 32 && ty < 296) { int idx=((ty-32)/66)*2+(tx>=120?1:0); if (idx<8) v=GRID[idx]; }
                 if (v != RADAR_VIEW_COUNT) { radar_ui_select_view(&ui, v, now); send_request(); last_req = now; }
                 else                       radar_ui_note_input(&ui, now);
+            } else if (ui.view == RADAR_VIEW_NODES) {
+                if (ty < 26) { radar_ui_on_input(&ui, now); }             // "< BACK" strip -> HOME
+                else {
+                    int idx = (ty - 36) / 24;                             // matches draw_nodes_list's row geometry
+                    if (idx >= 0 && idx < s_node_n) {
+                        s_sel_node = s_node_ids[idx];
+                        radar_ui_select_view(&ui, RADAR_VIEW_NODE, now); send_request(); last_req = now;
+                    } else {
+                        radar_ui_note_input(&ui, now);
+                    }
+                }
             } else if (ui.view == RADAR_VIEW_CONTROL) {
                 radar_ui_note_input(&ui, now);           // keep backlight/idle timer fresh
 #ifdef SIMULACRA_CONFIG_CTRL
@@ -1013,11 +1018,11 @@ void app_main(void)
             } else if (ui.view == RADAR_VIEW_NODE) {
                 if (ty < 26) { radar_ui_on_input(&ui, now); }             // "< BACK" strip -> HOME
                 else {
-                    if (s_home_n > 0) {
+                    if (s_node_n > 0) {
                         int cur = 0;
-                        for (int i = 0; i < s_home_n; i++) if (s_home_ids[i] == s_sel_node) { cur = i; break; }
-                        if (tx < 80)        s_sel_node = s_home_ids[(cur - 1 + s_home_n) % s_home_n];
-                        else if (tx > 160)  s_sel_node = s_home_ids[(cur + 1) % s_home_n];
+                        for (int i = 0; i < s_node_n; i++) if (s_node_ids[i] == s_sel_node) { cur = i; break; }
+                        if (tx < 80)        s_sel_node = s_node_ids[(cur - 1 + s_node_n) % s_node_n];
+                        else if (tx > 160)  s_sel_node = s_node_ids[(cur + 1) % s_node_n];
                     }
                     radar_ui_note_input(&ui, now); send_request(); last_req = now;
                 }
@@ -1148,9 +1153,9 @@ void app_main(void)
                 }
                 nvc = 1;
             }
-            // Record the strip ids HOME will draw (<=3), for the next frame's card-tap mapping.
-            s_home_n = nvc > 3 ? 3 : nvc;
-            for (int i = 0; i < s_home_n; i++) s_home_ids[i] = nv[i].id;
+            // Record every currently-tracked node id, for the NODES list and NODE-cycling taps.
+            s_node_n = nvc;
+            for (int i = 0; i < s_node_n; i++) s_node_ids[i] = nv[i].id;
             // Resolve the selected node -> index into nv[] (-1 if gone) for the NODE view.
             int sel_idx = -1;
             if (ui.view == RADAR_VIEW_NODE)

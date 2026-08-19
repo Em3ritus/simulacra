@@ -220,7 +220,7 @@ static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     radar_gfx_text(g, cx, 261, clabel, armed ? COL_FG : COL_ASH);
 }
 // ---- necromancer HOME: fleet strip + sigil grid + ticker (theme palette) ----
-static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar_node_view_t *nodes, int nc){
+static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st){
     radar_gfx_clear(g, COL_VOID);
     radar_gfx_fill_rect(g, 0, 0, 240, 26, COL_CRYPT);
     radar_gfx_hline(g, 0, 239, 26, COL_EDGE);
@@ -238,36 +238,13 @@ static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st, const radar
     int nsurv=0;
     for(uint8_t i=0;i<st->threat_count;i++) if(is_surveil_cat(st->threats[i].category)) nsurv++;
     if(nsurv>0){ char sb[16]; snprintf(sb,sizeof sb,"!%d",nsurv); radar_gfx_text(g, 100, 9, sb, COL_HUNTER); }
-    int cols = nc < 1 ? 0 : (nc > 3 ? 3 : nc);
-    for(int i=0;i<cols;i++){
-        int x=i*80, y=30;
-        radar_gfx_fill_rect(g, x+2, y, 76, 70, COL_CRYPT);
-        // Per-node health from the status flags: bit3 LOW BATT (fuel gauge), bit2 DEGRADED (probe TX
-        // wedged). Both read amber, distinct from CHANNEL (healthy) and SILENT (gone). Battery wins.
-        bool alive = nodes[i].alive;
-        bool low_batt = alive && (nodes[i].st->flags & 0x08);
-        bool degraded = alive && (nodes[i].st->flags & 0x04);
-        uint16_t sc = !alive ? COL_ASH : (low_batt || degraded) ? COL_WARD : COL_CHANNEL;
-        const char *health = !alive ? "SILENT" : low_batt ? "LOW BATT" : degraded ? "DEGRADED" : "CHANNEL";
-        char b[12]; snprintf(b,sizeof b,"N%u",(unsigned)nodes[i].id); radar_gfx_text(g, x+8, y+6, b, COL_BONE);
-        radar_gfx_fill_rect(g, x+68, y+8, 4, 4, sc);
-        snprintf(b,sizeof b,"%u",(unsigned)(alive?nodes[i].st->active_devices:0)); radar_gfx_text(g, x+8, y+24, b, COL_BONE);
-        // Battery readout: SoC%% if a fuel gauge provides it, else cell voltage; amber when low. Blank on USB.
-        if (alive && nodes[i].st->battery_mv) {
-            uint16_t mv = nodes[i].st->battery_mv; uint8_t pc = nodes[i].st->battery_pct;
-            if (pc != 0xFF) snprintf(b,sizeof b,"%u%% %u.%01uV",(unsigned)pc,(unsigned)(mv/1000),(unsigned)((mv%1000)/100));
-            else            snprintf(b,sizeof b,"%u.%02uV",(unsigned)(mv/1000),(unsigned)((mv%1000)/10));
-            radar_gfx_text(g, x+8, y+40, b, low_batt ? COL_WARD : COL_ASH);
-        }
-        radar_gfx_text(g, x+8, y+54, health, sc);
-    }
-    static const sigil_id_t sig[7]={SIGIL_CIRCLE,SIGIL_HUNTER,SIGIL_LIVING,SIGIL_RITE,SIGIL_WARD,SIGIL_GRIMOIRE,SIGIL_CIRCLE};
-    static const char *lbl[7]={"RADAR","FOLLOWERS","DECOYS","CONTROL","LIBRARY","INFO","EXPOSURE"};
-    for(int i=0;i<7;i++){                                          // 4 rows @ 48px to fit the 7th tile
-        int cx=(i%2)*120, cy=104+(i/2)*48;
-        radar_gfx_fill_rect(g, cx+1, cy+1, 118, 46, COL_CRYPT);
-        radar_sigil_draw(g, sig[i], cx+18, cy+23, 10, COL_ARCANE);
-        radar_gfx_text(g, cx+36, cy+19, lbl[i], COL_BONE);
+    static const sigil_id_t sig[8]={SIGIL_CIRCLE,SIGIL_HUNTER,SIGIL_LIVING,SIGIL_RITE,SIGIL_WARD,SIGIL_GRIMOIRE,SIGIL_CIRCLE,SIGIL_LIVING};
+    static const char *lbl[8]={"RADAR","FOLLOWERS","DECOYS","CONTROL","LIBRARY","INFO","EXPOSURE","NODES"};
+    for(int i=0;i<8;i++){                                          // 4 rows @ 66px, grid reclaims the old strip's space
+        int cx=(i%2)*120, cy=32+(i/2)*66;
+        radar_gfx_fill_rect(g, cx+1, cy+1, 118, 64, COL_CRYPT);
+        radar_sigil_draw(g, sig[i], cx+18, cy+29, 10, COL_ARCANE);
+        radar_gfx_text(g, cx+36, cy+25, lbl[i], COL_BONE);
     }
     radar_gfx_hline(g, 0, 239, 298, COL_EDGE);
     radar_gfx_text(g, 6, 304, "TAP AN ICON TO OPEN", COL_ASH);
@@ -498,7 +475,7 @@ void radar_render_view(radar_view_t view, const radar_wire_status_t *st,
                        radar_flush_fn flush, void *ctx){
     for(int y0=0;y0<h;y0+=band_h){ radar_gfx_t g={ .buf=band, .w=w, .y0=y0, .h=band_h };
         radar_gfx_clear(&g,COL_BG);
-        if(view==RADAR_VIEW_HOME) draw_home(&g,st,nodes,node_count);
+        if(view==RADAR_VIEW_HOME) draw_home(&g,st);
         else if(view==RADAR_VIEW_DETAIL) draw_detail(&g,st);
         else if(view==RADAR_VIEW_STATS) draw_stats(&g,st);
         else if(view==RADAR_VIEW_LIBRARY) draw_library(&g,lib);
