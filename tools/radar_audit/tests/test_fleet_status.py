@@ -10,6 +10,15 @@ class FS(unittest.TestCase):
         self.assertEqual(run("up 5 12 up 7 8 count"), ["2"])
     def test_upsert_same_node_updates_not_adds(self):
         self.assertEqual(run("up 5 12 up 5 16 count at0"), ["1","id=5 dev=16 alive=1"])
+    def test_cap_holds_at_eight_nodes(self):
+        # push 9 distinct node ids; FLEET_STATUS_MAX=8 means the table holds only the first 8 it
+        # ever sees (fleet_status_upsert drops a genuinely-new id once full -- see the "table full:
+        # drop" comment in fleet_status.c). This is a regression test for the cap value itself, not
+        # for eviction policy (that LRU-recycling of ids lives in cyd_main.c's node_id_for(), which
+        # pre-empts fleet_status.c ever seeing more than FLEET_STATUS_MAX distinct ids in practice --
+        # not host-testable, see the plan's Global Constraints).
+        cmds = " ".join(f"up {i} {i+1}" for i in range(9))  # ids 0..8, active_devices i+1
+        self.assertEqual(run(f"{cmds} count"), ["8"])
     def test_stale_node_reads_not_alive(self):
         # upsert node 5, advance past stale, query
         self.assertEqual(run("up 5 12 wait at0"), ["id=5 dev=12 alive=0"])
@@ -69,8 +78,8 @@ class FutureStamp(unittest.TestCase):
 
 @unittest.skipUnless(os.path.exists(EXE), "fleet_dump not built")
 class Prune(unittest.TestCase):
-    """Long-gone nodes must be retired, or their SILENT cards occupy HOME's three card slots and
-    push a LIVE node off the display -- a board that looks dropped while it is still meshing.
+    """Long-gone nodes must be retired, or their SILENT records occupy fleet-tracking slots and
+    push a LIVE node out of the table -- a board that looks dropped while it is still meshing.
     Decoys re-randomise their MAC on every boot, so each reboot leaves one of these behind."""
 
     def test_prune_drops_long_silent_nodes(self):

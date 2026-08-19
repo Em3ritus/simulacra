@@ -6,7 +6,7 @@
 #endif
 #include "radar_wire.h"
 
-#define FLEET_STATUS_MAX       4
+#define FLEET_STATUS_MAX       8
 #define FLEET_STATUS_STALE_MS  12000u   // no status this long -> node reads "silent"
 
 typedef struct { uint8_t id; radar_wire_status_t st; uint32_t last_ms; bool used; } fleet_node_t;
