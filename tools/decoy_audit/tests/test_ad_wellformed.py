@@ -30,15 +30,15 @@ class RefuseStructurallyImpossibleAdverts(unittest.TestCase):
     # A real consumer device, address withheld: its company id 0x856C sits outside the SIG's
     # assigned range, AND the
     # 128-bit-UUID element carries ASCII text ("ELBahoriA..-MIRP") where 16 binary bytes belong.
-    HONEYPOT_FULL  = "02010609ff6c858b300fbd75821107454c4261686f72694103ab2d4d495250"
-    HONEYPOT_MFG   = "02010609ff6c858b300fbd7582"
-    HONEYPOT_UUID  = "0201061107454c4261686f72694103ab2d4d495250"
+    MALFORMED_FULL  = "02010609ff6c858b300fbd75821107454c4261686f72694103ab2d4d495250"
+    MALFORMED_MFG   = "02010609ff6c858b300fbd7582"
+    MALFORMED_UUID  = "0201061107454c4261686f72694103ab2d4d495250"
 
     def test_adopts_unassigned_company_id_deliberately(self):
-        """The honeypot's company-id recommendation was tested and NOT adopted. This pins that.
+        """The company-id range check was tested and NOT adopted. This pins that.
 
-        Its report advises rejecting company ids outside the SIG's assigned range, on the reasoning
-        that no real device can hold one. Measured against 452,462 ambient adverts from this
+        The check rejects company ids outside the SIG's assigned range, on the reasoning that no
+        real device can hold one. Measured against 452,462 ambient adverts from this
         project's own captures, that is false: 0x4D48 ("MH"), 0x3030 ("00") and 0x4556 ("EV") are
         ordinary sightings -- real products with ASCII stuffed into the field -- and the 0x8000+
         range is populated too. Enforcing a ceiling rejected 32% of one capture.
@@ -53,21 +53,21 @@ class RefuseStructurallyImpossibleAdverts(unittest.TestCase):
         before keeping it.
         """
         self.assertTrue(
-            strip(self.HONEYPOT_MFG, "856c"),
+            strip(self.MALFORMED_MFG, "856c"),
             "rejected a template for its company id alone. Unassigned ids are common in real "
             "ambient traffic; refusing them costs diversity and buys nothing.")
 
     def test_rejects_ascii_text_in_a_binary_uuid_field(self):
         self.assertFalse(
-            strip(self.HONEYPOT_UUID),
+            strip(self.MALFORMED_UUID),
             "adopted a template with ASCII text in a 128-bit-UUID element. That field is 16 bytes "
             "of binary by definition; readable words in it are conclusive evidence of a generator.")
 
-    def test_rejects_the_real_honeypot_advert(self):
+    def test_rejects_the_real_malformed_advert(self):
         # Rejected for its ASCII-filled UUID element, not for its company id -- see the test above.
         self.assertFalse(
-            strip(self.HONEYPOT_FULL, "856c"),
-            "adopted the exact advert a passive honeypot flagged as conclusively synthetic.")
+            strip(self.MALFORMED_FULL, "856c"),
+            "adopted the exact advert a passive detector flagged as conclusively synthetic.")
 
     def test_rejects_uuid_elements_of_impossible_length(self):
         # 128-bit UUID list carrying 15 bytes: not a whole number of UUIDs, so it cannot be real.

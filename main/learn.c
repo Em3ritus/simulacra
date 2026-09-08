@@ -89,13 +89,13 @@ static uint32_t mask_range(uint32_t m, uint8_t from, uint8_t to)  // [from,to)
 // faults, treating both as conclusive indicators of synthetic traffic. Simulacra learns from
 // ambient traffic, so meeting one of those devices is how it would have acquired the tell.
 
-// NOT CHECKED: whether the company id falls in the SIG's assigned range. The honeypot report
-// recommends it, and the recommendation does not survive contact with our own captures. Measured
+// NOT CHECKED: whether the company id falls in the SIG's assigned range. It is a commonly
+// recommended check, and it does not survive contact with our own captures. Measured
 // across 452,462 ambient adverts, company ids above the assigned frontier are ordinary: 0x4D48
 // ("MH"), 0x3030 ("00"), 0x4556 ("EV") -- real products with ASCII stuffed into the field -- plus a
 // populated 0x8000+ range. Enforcing a ceiling rejected 32% of one capture.
 //
-// The honeypot's own control capture makes the same point from the other side: all three devices it
+// The detector's own control run makes the same point from the other side: all three devices it
 // flagged on this rule turned out to be real hardware. So an unassigned company id does not mark
 // traffic as synthetic -- it marks it as sloppy, and the room is full of sloppy. Refusing to model
 // that would make the decoy population TIDIER than its surroundings, which is a tell in the

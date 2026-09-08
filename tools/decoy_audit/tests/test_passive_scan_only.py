@@ -13,7 +13,7 @@ def src(name):
 class ScanningMustStayPassive(unittest.TestCase):
     """The observer must never active-scan. This is the difference between silent and detectable.
 
-    A passive scan transmits nothing, so no honeypot, sniffer or counter-surveillance rig can see it
+    A passive scan transmits nothing, so no detector, sniffer or counter-surveillance rig can see it
     -- not by any protocol trick, it is physically impossible. An ACTIVE scan sends a SCAN_REQ to
     every scannable advertiser it hears, addressed from our own address, which turns the observer
     from a silent listener into a beacon announcing "something here is enumerating devices".
