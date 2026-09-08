@@ -4,6 +4,7 @@
 #include "law3.h"
 #include "learn_wire.h"     // learn_merge (shared)
 #include "sig_store.h"      // never learn a shape our own detector calls a tracker
+#include "rf_model.h"      // RF_VENDOR_UNKNOWN (the "no mfg data" sentinel)
 #include "esp_random.h"
 #include "esp_log.h"
 #include "nvs.h"
@@ -44,6 +45,10 @@ static bool shape_matches_threat(uint16_t company_id, uint16_t svc_uuid)
 #define AD_APPEARANCE   0x19
 #define AD_SVCDATA16    0x16
 #define AD_MFG          0xFF
+#define AD_UUID32_INC   0x04
+#define AD_UUID32_CMP   0x05
+#define AD_UUID128_INC  0x06
+#define AD_UUID128_CMP  0x07
 
 // --- state ---
 static learned_template_t s_store[LEARN_CAP];
@@ -72,6 +77,58 @@ static uint16_t     s_sweep;
 static uint32_t mask_range(uint32_t m, uint8_t from, uint8_t to)  // [from,to)
 { for (uint8_t i = from; i < to && i < 31; i++) m |= (1u << i); return m; }
 
+// ---- well-formedness gate -------------------------------------------------------------------
+//
+// Rejects adverts that violate the AD spec, as opposed to adverts that are merely unusual. The
+// distinction matters: unusual shapes are exactly what this learner exists to collect, while
+// IMPOSSIBLE shapes are what a passive detector tests for. Adopting an impossible one would make
+// every decoy rendering that template separable by a check costing an observer one line of code.
+//
+// Not hypothetical. Bench testing against a passive BLE detector could not attribute a single
+// record to the generator -- but it DID flag two real consumer devices on precisely these two
+// faults, treating both as conclusive indicators of synthetic traffic. Simulacra learns from
+// ambient traffic, so meeting one of those devices is how it would have acquired the tell.
+
+// NOT CHECKED: whether the company id falls in the SIG's assigned range. The honeypot report
+// recommends it, and the recommendation does not survive contact with our own captures. Measured
+// across 452,462 ambient adverts, company ids above the assigned frontier are ordinary: 0x4D48
+// ("MH"), 0x3030 ("00"), 0x4556 ("EV") -- real products with ASCII stuffed into the field -- plus a
+// populated 0x8000+ range. Enforcing a ceiling rejected 32% of one capture.
+//
+// The honeypot's own control capture makes the same point from the other side: all three devices it
+// flagged on this rule turned out to be real hardware. So an unassigned company id does not mark
+// traffic as synthetic -- it marks it as sloppy, and the room is full of sloppy. Refusing to model
+// that would make the decoy population TIDIER than its surroundings, which is a tell in the
+// direction this project cares about most.
+//
+// The two checks below are kept precisely because they do not have that problem: both fire zero
+// times across those same 452,462 real adverts.
+
+// A UUID list must be a whole number of UUIDs. Anything else is a length the spec cannot express.
+static bool uuid_list_len_ok(uint8_t type, uint8_t vlen)
+{
+    switch (type) {
+        case AD_UUID16_INC:  case AD_UUID16_CMP:  return vlen % 2  == 0;
+        case AD_UUID32_INC:  case AD_UUID32_CMP:  return vlen % 4  == 0;
+        case AD_UUID128_INC: case AD_UUID128_CMP: return vlen % 16 == 0;
+        default: return true;
+    }
+}
+
+// Readable text in a field defined as binary. A UUID is 16 opaque bytes; when most of them are
+// printable characters the field was filled with a string, which no real stack does. The threshold
+// is a supermajority rather than "any ASCII" because binary UUIDs legitimately contain bytes in the
+// printable range by chance -- roughly 37% of them -- and rejecting on a single one would throw
+// away genuine templates.
+static bool looks_like_text(const uint8_t *p, uint8_t n)
+{
+    if (n < 8) return false;                          // too short to judge
+    uint8_t printable = 0;
+    for (uint8_t i = 0; i < n; i++)
+        if (p[i] >= 0x20 && p[i] < 0x7F) printable++;
+    return (uint32_t)printable * 4u >= (uint32_t)n * 3u;   // >= 75%
+}
+
 bool learn_strip(const uint8_t *ad, uint8_t len, uint16_t company,
                  learned_template_t *out)
 {
@@ -90,9 +147,16 @@ bool learn_strip(const uint8_t *ad, uint8_t len, uint16_t company,
         uint8_t type = ad[i + 1];
         uint8_t vfrom = i + 2;                            // first value byte
         uint8_t vto   = i + 1 + l;                        // one past last
+        if (!uuid_list_len_ok(type, (uint8_t)(vto - vfrom))) return false;
         switch (type) {
             case AD_FLAGS: case AD_UUID16_INC: case AD_UUID16_CMP:
             case AD_TXPOWER: case AD_APPEARANCE:
+                break;                                    // keep verbatim
+            case AD_UUID32_INC:  case AD_UUID32_CMP:
+            case AD_UUID128_INC: case AD_UUID128_CMP:
+                // Binary by definition. Readable words here mean a generator filled the field with
+                // a string -- the fault that got a real device flagged as synthetic.
+                if (looks_like_text(&ad[vfrom], (uint8_t)(vto - vfrom))) return false;
                 break;                                    // keep verbatim
             case AD_NAME_SHORT: case AD_NAME_CMP:
                 out->name_off = vfrom;                    // region overwritten with a synthetic name at render

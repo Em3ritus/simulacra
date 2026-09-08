@@ -412,6 +412,28 @@ int main(int argc, char **argv) {
         printf("%u %u %u %d\n", r, w, b, ble_devices_count());
         return 0;
     }
+    // --adstrip <hex>: run one raw AD payload through learn_strip and report whether the learner
+    // would adopt it. Drives the REAL function rather than re-implementing its rules in Python, so
+    // the test cannot pass against a stale idea of what learn_strip does.
+    //
+    // Exists because bench testing against a passive BLE detector turned up two real consumer
+    // devices emitting structurally impossible adverts -- a company id far outside the SIG's
+    // assigned range, and an ASCII string stuffed into a 128-bit-UUID field. Simulacra learns
+    // company ids and AD shapes from ambient traffic, so without a well-formedness gate it would
+    // adopt such a device and re-emit its impossible structure as a decoy.
+    if (argc > 2 && strcmp(argv[1], "--adstrip") == 0) {
+        const char *h = argv[2];
+        uint8_t ad[31]; size_t n = 0;
+        for (const char *q = h; q[0] && q[1] && n < sizeof ad; q += 2) {
+            char b[3] = { q[0], q[1], 0 };
+            ad[n++] = (uint8_t)strtoul(b, 0, 16);
+        }
+        uint16_t company = (argc > 3) ? (uint16_t)strtoul(argv[3], 0, 16) : 0xFFFF;
+        learned_template_t out;
+        printf("%s\n", learn_strip(ad, (uint8_t)n, company, &out) ? "ADOPT" : "REJECT");
+        return 0;
+    }
+
     unsigned seed = (argc > 1) ? (unsigned)strtoul(argv[1], 0, 10) : 1;
     size_t   n    = (argc > 2) ? (size_t)strtoul(argv[2], 0, 10) : 64;
     srand(seed);
