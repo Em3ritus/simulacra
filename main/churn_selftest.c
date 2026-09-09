@@ -75,6 +75,16 @@ static int rec_apply(uint8_t instance, const identity_t *id)
 // Milestone A: churn is now a presenter over ble_devices (lifecycle/rotation live there).
 // This just checks the minimal new-contract wiring: population is visible through churn's
 // accessors, and a tick drives at least one apply.
+// One observation of a NEW device: the vendor census plus the per-advert stats. The histogram
+// loops below all mean "N distinct devices of this vendor", which since 2026-09-09 is a separate
+// call from rf_model_observe() -- counting adverts there weighted a vendor by how chatty it was
+// rather than by how many of them the room held.
+static void st_observe_device(rf_model_t *m, uint16_t co, int8_t rssi, uint8_t pdu, int32_t itvl)
+{
+    rf_model_observe_arrival(m, co);
+    rf_model_observe(m, co, rssi, pdu, itvl);
+}
+
 static void test_churn_present(void)
 {
     roster_init();
@@ -372,7 +382,7 @@ static void test_learn_generate(void)
     ST_CHECK(learn_count() == 1, "gen: one learned shape seeded");
 
     rf_model_t m; rf_model_reset(&m);
-    for (int i = 0; i < 60; i++) rf_model_observe(&m, 0x0075, -50, 0, 150);
+    for (int i = 0; i < 60; i++) st_observe_device(&m, 0x0075, -50, 0, 150);
     rf_model_end_sweep(&m, 5 /*distinct*/, 15000 /*window_ms*/, 5 /*arrivals*/);
 
     identity_t roster[8];
@@ -639,19 +649,23 @@ static void test_rf_model(void)
     ST_CHECK(rf_rssi_bin(-100) == 0 && rf_rssi_bin(-20) == 7, "rssi bin edges");
     ST_CHECK(rf_pdu_bin(0) == 0 && rf_pdu_bin(4) == 4 && rf_pdu_bin(9) == RF_PDU_BINS - 1, "pdu bin map");
 
-    // first sighting (no interval), then a repeat with a 150 ms interval
+    // One device: an arrival plus a repeat advert with a 150 ms interval. The vendor count is a
+    // DEVICE census, so it reads 1 here, not 2 -- a device that advertises twice is still one
+    // device, and counting the second advert is what let one chatty printer take 96.9% of a model
+    // whose room was 20% that vendor (measured 2026-09-09).
+    rf_model_observe_arrival(&m, 0x004C);
     rf_model_observe(&m, 0x004C, -50, 0, -1);
     rf_model_observe(&m, 0x004C, -50, 0, 150);
     int vi = rf_vendor_index(&m, 0x004C);
-    ST_CHECK(vi >= 0 && m.vendors[vi].count == 2, "vendor slot counts both observations");
+    ST_CHECK(vi >= 0 && m.vendors[vi].count == 1, "vendor count is per-DEVICE, not per-advert");
     ST_CHECK(m.vendors[vi].itvl_bins[rf_itvl_bin(150)] == 1, "interval sample lands in bin 2");
     ST_CHECK(m.vendors[vi].itvl_bins[0] == 0, "no spurious interval sample for first sighting");
     ST_CHECK(m.rssi_bins[rf_rssi_bin(-50)] == 2 && m.pdu_bins[0] == 2, "rssi+pdu histograms updated");
 
     // vendor-table overflow -> other bucket
     rf_model_t o; rf_model_reset(&o);
-    for (int i = 0; i < RF_VENDOR_SLOTS; i++) rf_model_observe(&o, (uint16_t)(0x100 + i), -60, 0, -1);
-    rf_model_observe(&o, 0x9999, -60, 0, -1);   // 25th distinct vendor
+    for (int i = 0; i < RF_VENDOR_SLOTS; i++) st_observe_device(&o, (uint16_t)(0x100 + i), -60, 0, -1);
+    st_observe_device(&o, 0x9999, -60, 0, -1);   // 25th distinct vendor
     ST_CHECK(o.other_count == 1, "overflow vendor lands in other bucket");
 
     // sweep EWMA
@@ -741,8 +755,8 @@ static void test_ble_next_addr_prebroadcast(void)
 static void test_rf_model_nvs(void)
 {
     rf_model_t m; rf_model_reset(&m);
-    rf_model_observe(&m, 0x004C, -50, 0, 150);
-    rf_model_observe(&m, 0x0075, -60, 3, 900);
+    st_observe_device(&m, 0x004C, -50, 0, 150);
+    st_observe_device(&m, 0x0075, -60, 3, 900);
     rf_model_end_sweep(&m, 3, 60000, 3);
 
     ST_CHECK(m.pop_ewma > 0.0f, "sweep seeded a non-zero density (test premise)");
@@ -792,8 +806,8 @@ static void test_generate(void)
     // floor caps any single vendor at GEN_MAX_VENDOR_PCT and fills the overflow with varied templates,
     // so the dominant is pulled down toward the cap -- keep the minority small enough that the capped
     // dominant still clearly leads (otherwise the c40>c75 margin is thin and flaky).
-    for (int i=0;i<70;i++) rf_model_observe(&m, 0x0040, -55, 0, 150);
-    for (int i=0;i<10;i++) rf_model_observe(&m, 0x0075, -65, 0, 900);
+    for (int i=0;i<70;i++) st_observe_device(&m, 0x0040, -55, 0, 150);
+    for (int i=0;i<10;i++) st_observe_device(&m, 0x0075, -65, 0, 900);
     rf_model_end_sweep(&m, 6, 60000, 6);
 
     static identity_t roster[64];
@@ -824,7 +838,7 @@ static void test_generate(void)
 static void test_roster_generate_path(void)
 {
     rf_model_t m; rf_model_reset(&m);
-    for (int i=0;i<80;i++) rf_model_observe(&m, 0x0075, -60, 0, 900);
+    for (int i=0;i<80;i++) st_observe_device(&m, 0x0075, -60, 0, 900);
     rf_model_end_sweep(&m, 5, 60000, 5);
     rf_model_save_nvs(&m);
 
@@ -862,20 +876,20 @@ static void test_probe_frame(void)
 static void test_drift(void)
 {
     rf_model_t a; rf_model_reset(&a);                  // 100% Apple
-    for (int i=0;i<100;i++) rf_model_observe(&a, 0x004C, -50, 0, -1);
+    for (int i=0;i<100;i++) st_observe_device(&a, 0x004C, -50, 0, -1);
     rf_model_end_sweep(&a, 5, 60000, 5);
     ST_CHECK(drift_score(&a, &a) < 0.01f, "drift: identical models score ~0");
 
     rf_model_t b; rf_model_reset(&b);                  // 100% Samsung (disjoint mix)
-    for (int i=0;i<100;i++) rf_model_observe(&b, 0x0075, -50, 0, -1);
+    for (int i=0;i<100;i++) st_observe_device(&b, 0x0075, -50, 0, -1);
     rf_model_end_sweep(&b, 5, 60000, 5);
     float far = drift_score(&a, &b);
     ST_CHECK(far > 0.6f, "drift: disjoint vendor mixes score high");
     ST_CHECK(drift_exceeds(far, 0.5f), "drift_exceeds true above threshold");
 
     rf_model_t c; rf_model_reset(&c);                  // 70/30 partial overlap with a
-    for (int i=0;i<70;i++) rf_model_observe(&c, 0x004C, -50, 0, -1);
-    for (int i=0;i<30;i++) rf_model_observe(&c, 0x0075, -50, 0, -1);
+    for (int i=0;i<70;i++) st_observe_device(&c, 0x004C, -50, 0, -1);
+    for (int i=0;i<30;i++) st_observe_device(&c, 0x0075, -50, 0, -1);
     rf_model_end_sweep(&c, 5, 60000, 5);
     float mid = drift_score(&a, &c);
     ST_CHECK(mid > 0.01f && mid < far, "drift: partial overlap is monotonic with mix distance");
@@ -1531,11 +1545,11 @@ static void test_rf_model_decay(void)
     // Rolling window: a vendor seen heavily once then never again must fade below a vendor that
     // keeps being seen, so the model tracks the CURRENT room instead of all-time history.
     rf_model_t m; rf_model_reset(&m);
-    for (int i = 0; i < 200; i++) rf_model_observe(&m, 0x00AA, -50, 3, 500);   // vendor A, once
+    for (int i = 0; i < 200; i++) st_observe_device(&m, 0x00AA, -50, 3, 500);   // vendor A, once
     int ia = rf_vendor_index(&m, 0x00AA);
     uint32_t a1 = m.vendors[ia].count;
     for (int s = 0; s < 8; s++) {                                              // 8 sweeps of vendor B only
-        for (int i = 0; i < 200; i++) rf_model_observe(&m, 0x00BB, -50, 3, 500);
+        for (int i = 0; i < 200; i++) st_observe_device(&m, 0x00BB, -50, 3, 500);
         rf_model_decay(&m);
     }
     ia = rf_vendor_index(&m, 0x00AA);
@@ -1552,7 +1566,7 @@ static void test_generate_diversity_floor(void)
     // single-manufacturer synthetic crowd - the generation diversity floor fills the overflow
     // from varied built-in templates.
     rf_model_t m; rf_model_reset(&m);
-    for (int i = 0; i < 200; i++) rf_model_observe(&m, 0x0075, -50, 3, 500);   // Samsung only
+    for (int i = 0; i < 200; i++) st_observe_device(&m, 0x0075, -50, 3, 500);   // Samsung only
     static identity_t roster[64];
     size_t built = generate_roster(&m, roster, 64);
     ST_CHECK(built >= 60, "diversity: most identities built");

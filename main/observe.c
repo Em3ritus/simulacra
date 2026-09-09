@@ -70,16 +70,23 @@ void observe_ingest(rf_model_t *m, const uint8_t mac[6], uint32_t now_ms,
         if (s_tbl[i].used && s_tbl[i].hash == h) { slot = &s_tbl[i]; break; }
         if (!s_tbl[i].used && !freep) freep = &s_tbl[i];
     }
+    bool arrival = false;
     if (slot) {
         interval = (int32_t)(now_ms - slot->last_ms);
         slot->last_ms = now_ms;
     } else if (freep) {
         freep->used = true; freep->hash = h; freep->first_ms = now_ms; freep->last_ms = now_ms;
         s_arrivals++;
+        arrival = true;
     } else {
         s_saturated = true;                // full: still counted in the model, just not deduped
+        arrival = true;                    // cannot tell new from repeat -> count it, and the
+                                           // saturation flag already marks the sweep as a floor
     }
     rf_model_observe(m, company_id, rssi, pdu_type, interval);
+    // The vendor census is per-DEVICE. This is the only place that knows which adverts are first
+    // sightings, so it is the only place that can weight it correctly.
+    if (arrival) rf_model_observe_arrival(m, company_id);
     portEXIT_CRITICAL(&s_obs_mux);
 }
 

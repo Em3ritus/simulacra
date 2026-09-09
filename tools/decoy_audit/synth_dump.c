@@ -434,6 +434,32 @@ int main(int argc, char **argv) {
         return 0;
     }
 
+    // --vendorweight <devices> <adverts_each>: build a model where ONE vendor has `devices`
+    // devices each emitting `adverts_each` adverts, and a second vendor has `devices` devices
+    // emitting one advert each. Prints both vendors' learned counts.
+    //
+    // Pins the 2026-09-09 fix: the census must weight vendors by how many DEVICES carry them, not
+    // by how chatty those devices are. Advert weighting let a single printer emitting 1400 adverts
+    // reach 96.9% of a model whose room was 20% that vendor.
+    if (argc > 1 && strcmp(argv[1], "--vendorweight") == 0) {
+        int devs = argc > 2 ? (int)strtoul(argv[2], 0, 10) : 1;
+        int each = argc > 3 ? (int)strtoul(argv[3], 0, 10) : 100;
+        rf_model_t m; memset(&m, 0, sizeof m);
+        m.magic = RF_MODEL_MAGIC; m.version = RF_MODEL_VERSION;
+        for (int d = 0; d < devs; d++) {                  // chatty vendor
+            rf_model_observe_arrival(&m, 0x0040);
+            rf_model_observe(&m, 0x0040, -55, 0, -1);
+            for (int a = 1; a < each; a++) rf_model_observe(&m, 0x0040, -55, 0, 150);
+        }
+        for (int d = 0; d < devs; d++) {                  // quiet vendor, same device count
+            rf_model_observe_arrival(&m, 0x004C);
+            rf_model_observe(&m, 0x004C, -55, 0, -1);
+        }
+        int a = rf_vendor_index(&m, 0x0040), b = rf_vendor_index(&m, 0x004C);
+        printf("%u %u\n", a >= 0 ? m.vendors[a].count : 0u, b >= 0 ? m.vendors[b].count : 0u);
+        return 0;
+    }
+
     unsigned seed = (argc > 1) ? (unsigned)strtoul(argv[1], 0, 10) : 1;
     size_t   n    = (argc > 2) ? (size_t)strtoul(argv[2], 0, 10) : 64;
     srand(seed);

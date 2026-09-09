@@ -4,7 +4,8 @@
 #include <stddef.h>
 
 #define RF_MODEL_MAGIC    0x52464D31u   // "RFM1"
-#define RF_MODEL_VERSION  2             // v2 adds adstruct_bins
+#define RF_MODEL_VERSION  3             // v2 adds adstruct_bins; v3 device-weights vendors[].count
+                                        // (v2 counts are advert-weighted and must not be blended)
 #define RF_VENDOR_SLOTS   24
 #define RF_ITVL_BINS      7    // <50,50-100,100-200,200-500,500-1000,1000-2000,>2000 ms
 #define RF_RSSI_BINS      8    // -100..-20 dBm in 10 dBm steps
@@ -85,6 +86,11 @@ void   rf_model_observe(rf_model_t *m, uint16_t company_id, int8_t rssi,
                         uint8_t pdu_type, int32_t interval_ms);
 // Fold one NO-MFG advert's structural class. Only called for company_id == RF_VENDOR_UNKNOWN:
 // an advert carrying mfg data is shaped by its vendor's template, not by this mix.
+// One distinct DEVICE arriving, not one advertisement. Drives the vendor histogram, which decides
+// which company ids the generator emits. Counting adverts here weights a vendor by how chatty it is
+// rather than how common it is -- see the note in rf_model.c.
+void   rf_model_observe_arrival(rf_model_t *m, uint16_t company_id);
+
 void   rf_model_observe_adstruct(rf_model_t *m, uint8_t bin);
 // Classify serialized AD bytes into an RF_ADS_* bucket. Pure; shared with the host audit tools.
 uint8_t rf_adstruct_bin(const uint8_t *ad, uint8_t len);

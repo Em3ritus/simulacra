@@ -186,19 +186,41 @@ void rf_model_observe(rf_model_t *m, uint16_t company_id, int8_t rssi,
     m->rssi_bins[rf_rssi_bin(rssi)]++;
     m->pdu_bins[rf_pdu_bin(pdu_type)]++;
 
+    // Interval folding only. The vendor CENSUS lives in rf_model_observe_arrival(): counting a
+    // vendor here would weight it by how chatty its devices are, not by how many of them exist.
+    int vi = rf_vendor_index(m, company_id);
+    if (vi >= 0) {
+        if (interval_ms >= 0) m->vendors[vi].itvl_bins[rf_itvl_bin(interval_ms)]++;
+    } else {
+        if (interval_ms >= 0) m->other_itvl_bins[rf_itvl_bin(interval_ms)]++;
+    }
+}
+
+// One ARRIVAL = one device entering the room. Call once per distinct device per sweep, never per
+// advertisement.
+//
+// The vendor histogram drives which company ids the generator emits, so its weighting decides what
+// the synthetic crowd claims to be. Counting adverts makes that "which vendor talks most", which is
+// a different question with a very different answer: measured overnight on 2026-09-09, a single
+// chatty printer emitting 1400 adverts became 96.9% of the model in a room whose five devices were
+// 20% that vendor. GEN_MAX_VENDOR_PCT then clamped the output to its 40% ceiling, so the crowd
+// looked plausible while the model underneath was wrong by a factor of five -- the guard silently
+// absorbing an error it exists to backstop, not to correct.
+//
+// tools/decoy_audit fixed exactly this on the analysis side (see capture_profile.py's device-weight
+// note, which measured an 11x distortion from advert weighting). This is the same fix in the
+// firmware that generates the traffic.
+void rf_model_observe_arrival(rf_model_t *m, uint16_t company_id)
+{
+    if (!m) return;
     int vi = rf_vendor_index(m, company_id);
     if (vi < 0) {                          // claim a free slot if any
         for (size_t i = 0; i < RF_VENDOR_SLOTS; i++) {
             if (m->vendors[i].count == 0) { m->vendors[i].company_id = company_id; vi = (int)i; break; }
         }
     }
-    if (vi >= 0) {
-        m->vendors[vi].count++;
-        if (interval_ms >= 0) m->vendors[vi].itvl_bins[rf_itvl_bin(interval_ms)]++;
-    } else {                               // table full -> overflow bucket
-        m->other_count++;
-        if (interval_ms >= 0) m->other_itvl_bins[rf_itvl_bin(interval_ms)]++;
-    }
+    if (vi >= 0) m->vendors[vi].count++;
+    else         m->other_count++;         // table full -> overflow bucket
 }
 
 void rf_model_end_sweep(rf_model_t *m, uint32_t distinct_devices, uint32_t window_ms,
