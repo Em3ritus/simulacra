@@ -561,13 +561,14 @@ static void send_request(void){
         radar_retx_arm(&s_req_retx, frame, flen, s_req_repeats,
                        (uint32_t)(esp_timer_get_time()/1000));
 }
-#ifdef SIMULACRA_CONFIG_CTRL
-// Operator-set AUTO cap as a FLEET TOTAL (0 = uncapped). Decoys are additive and know nothing
-// about fleet size, so the Vigil divides by its own roster before transmitting a per-board value.
-static uint16_t s_cap_total = 0;
-
-// Live nodes on the roster. The cap is a fleet total the operator set; dividing by the number of
-// boards actually reporting is what turns it into each board's share.
+// Live nodes on the roster: nodes whose last status is inside the stale window. Used by the
+// CONFIG cap arithmetic (a fleet total divided by reporting boards) AND, outside that feature,
+// by the REQUEST retransmit adaptation in the main loop.
+//
+// Defined OUTSIDE SIMULACRA_CONFIG_CTRL deliberately. It used to sit inside that guard while
+// its main-loop caller sat outside one, so a Vigil built without the control page failed to
+// compile on an implicit declaration -- which is every `idf.py build` in cyd/ that does not
+// pass the flag, including a fresh clone following the README.
 static int fleet_alive_count(uint32_t now_ms)
 {
     int n = 0;
@@ -577,6 +578,11 @@ static int fleet_alive_count(uint32_t now_ms)
     }
     return n < 1 ? 1 : n;                       // never divide by zero; a lone Vigil assumes 1
 }
+
+#ifdef SIMULACRA_CONFIG_CTRL
+// Operator-set AUTO cap as a FLEET TOTAL (0 = uncapped). Decoys are additive and know nothing
+// about fleet size, so the Vigil divides by its own roster before transmitting a per-board value.
+static uint16_t s_cap_total = 0;
 
 static void send_config(uint8_t preset)
 {
