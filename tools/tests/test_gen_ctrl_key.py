@@ -49,10 +49,41 @@ class GenCtrlKey(unittest.TestCase):
             self.assertTrue(ed25519_verify(sk, pk), "sign/verify round-trip must pass")
 
     def test_headers_keep_expected_declarations(self):
+        """The names call sites use must still resolve, and the sizes must be right.
+
+        The keys moved into magic-prefixed structs so the web flasher can find and replace them in a
+        built image, with a macro preserving the original symbol name. So the plain
+        `SIMULACRA_CTRL_SK[64]` declaration is gone, but what actually matters is unchanged: the
+        symbol exists and the array is the right length.
+        """
         with tempfile.TemporaryDirectory() as d:
             run(d)
-            self.assertIn("SIMULACRA_CTRL_SK[64]", read(os.path.join(d, SK)))
-            self.assertIn("SIMULACRA_CTRL_PK[32]", read(os.path.join(d, PK)))
+            sk_h, pk_h = read(os.path.join(d, SK)), read(os.path.join(d, PK))
+            self.assertIn("#define SIMULACRA_CTRL_SK", sk_h)
+            self.assertIn("#define SIMULACRA_CTRL_PK", pk_h)
+            self.assertIn("key[64]", sk_h)
+            self.assertIn("key[32]", pk_h)
+
+    def test_headers_carry_the_locator_magic(self):
+        """Without the magic, the web flasher cannot find the key in a built image and every
+        browser-flashed fleet falls back to a published key."""
+        with tempfile.TemporaryDirectory() as d:
+            run(d)
+            self.assertIn("'S','I','M','U','L','A','C','R','A',':','C','T','R','L','S','K'",
+                          read(os.path.join(d, SK)))
+            self.assertIn("'S','I','M','U','L','A','C','R','A',':','C','T','R','L','P','K'",
+                          read(os.path.join(d, PK)))
+
+    def test_layout_stays_patchable(self):
+        """packed + used are load-bearing: padding between magic and key would break the fixed
+        offset the patcher relies on, and without `used` the linker can discard the block when only
+        .key is referenced."""
+        with tempfile.TemporaryDirectory() as d:
+            run(d)
+            for f in (SK, PK):
+                h = read(os.path.join(d, f))
+                self.assertIn("__attribute__((packed))", h)
+                self.assertIn("__attribute__((used))", h)
 
     def test_two_runs_differ(self):
         with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:

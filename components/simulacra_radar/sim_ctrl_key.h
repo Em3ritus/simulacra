@@ -2,7 +2,25 @@
 #include <stdint.h>
 // Ed25519 PUBLIC key for the Vigil->decoy CONFIG link -- GENERATED (safe to share). Must match
 // cyd/main/sim_ctrl_sk.h. Decoys verify with this. (Re)generate with tools/gen_ctrl_key.py.
-static const uint8_t SIMULACRA_CTRL_PK[32] = {
+//
+// Wrapped in a magic-prefixed block so a built image can be rewritten without rebuilding: the web
+// flasher generates a keypair in the browser, finds this 16-byte magic in the downloaded binary and
+// replaces the 32 bytes after it. That is what lets a browser-flashed fleet hold a key that exists
+// in nobody else's install and was never published. The macro keeps every call site unchanged.
+//
+// KEEP THE LAYOUT: magic immediately followed by the key, packed, no padding. `used` stops the
+// linker discarding the block when only .key is referenced.
+typedef struct __attribute__((packed)) {
+    unsigned char magic[16];
+    unsigned char key[32];
+} sim_ctrl_pk_block_t;
+
+__attribute__((used))
+static const sim_ctrl_pk_block_t SIMULACRA_CTRL_PK_BLOCK = {
+    { 'S','I','M','U','L','A','C','R','A',':','C','T','R','L','P','K' },
+    {
     0x03, 0x76, 0x22, 0x9f, 0x29, 0x8d, 0x0c, 0x53, 0xb3, 0x16, 0x94, 0x6e, 0x9e, 0x51, 0x29, 0x5b,
     0x19, 0x8f, 0xc5, 0x61, 0x5d, 0x21, 0x27, 0xa3, 0x04, 0x0d, 0x23, 0x5a, 0x48, 0x2c, 0xba, 0xd3
+    }
 };
+#define SIMULACRA_CTRL_PK (SIMULACRA_CTRL_PK_BLOCK.key)

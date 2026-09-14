@@ -36,22 +36,56 @@ def c_array(b):
     return ",\n".join("    " + ", ".join(row) for row in rows)
 
 
-SK_TMPL = """#pragma once
+SK_TMPL = r"""#pragma once
 #include <stdint.h>
 // Ed25519 SECRET key (seed||pub) for Vigil -- GENERATED. Keep local; NEVER commit to a public repo.
 // TweetNaCl 64-byte secret-key format. (Re)generate with tools/gen_ctrl_key.py.
-static const uint8_t SIMULACRA_CTRL_SK[64] = {{
+//
+// Magic-prefixed for the same reason as sim_ctrl_key.h: the web flasher rewrites the 64 bytes after
+// this magic with a keypair generated in the browser, so the published image carries a placeholder
+// and the flashed board carries a secret that was never published.
+//
+// KEEP THE LAYOUT: magic immediately followed by the key, packed, no padding.
+typedef struct __attribute__((packed)) {{
+    unsigned char magic[16];
+    unsigned char key[64];
+}} sim_ctrl_sk_block_t;
+
+__attribute__((used))
+static const sim_ctrl_sk_block_t SIMULACRA_CTRL_SK_BLOCK = {{
+    {{ 'S','I','M','U','L','A','C','R','A',':','C','T','R','L','S','K' }},
+    {{
 {body}
+    }}
 }};
+#define SIMULACRA_CTRL_SK (SIMULACRA_CTRL_SK_BLOCK.key)
 """
 
-PK_TMPL = """#pragma once
+PK_TMPL = r"""#pragma once
 #include <stdint.h>
 // Ed25519 PUBLIC key for the Vigil->decoy CONFIG link -- GENERATED (safe to share). Must match
 // cyd/main/sim_ctrl_sk.h. Decoys verify with this. (Re)generate with tools/gen_ctrl_key.py.
-static const uint8_t SIMULACRA_CTRL_PK[32] = {{
+//
+// Wrapped in a magic-prefixed block so a built image can be rewritten without rebuilding: the web
+// flasher generates a keypair in the browser, finds this 16-byte magic in the downloaded binary and
+// replaces the 32 bytes after it. That is what lets a browser-flashed fleet hold a key that exists
+// in nobody else's install and was never published. The macro keeps every call site unchanged.
+//
+// KEEP THE LAYOUT: magic immediately followed by the key, packed, no padding. `used` stops the
+// linker discarding the block when only .key is referenced.
+typedef struct __attribute__((packed)) {{
+    unsigned char magic[16];
+    unsigned char key[32];
+}} sim_ctrl_pk_block_t;
+
+__attribute__((used))
+static const sim_ctrl_pk_block_t SIMULACRA_CTRL_PK_BLOCK = {{
+    {{ 'S','I','M','U','L','A','C','R','A',':','C','T','R','L','P','K' }},
+    {{
 {body}
+    }}
 }};
+#define SIMULACRA_CTRL_PK (SIMULACRA_CTRL_PK_BLOCK.key)
 """
 
 
