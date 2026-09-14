@@ -53,15 +53,34 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # The Vigil signing secret is gitignored (it grants control authority over every node that
-      # trusts the matching public key), so a clean checkout has no sim_ctrl_sk.h. The starter build
-      # is explicitly the no-security regime -- see the warning on the flasher page -- so it builds
-      # from the published template. A private deployment regenerates both halves from source.
+      # Seed a control-key template for the CYD build.
+      #
+      # SIMULACRA_CTRL_SK is not only a signing key: cyd_main.c also derives the SD-card
+      # encryption keys for the learned library and the signature DB from it, so the build needs
+      # the header present even with no control plane compiled in.
       - name: Seed the control-key template (starter build only)
         if: matrix.path == 'cyd'
         run: cp cyd/main/sim_ctrl_sk.h.example cyd/main/sim_ctrl_sk.h
 
-      # Build BAKED (-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1, NO FLEET_PROVISION), then merge the
+      # NO CONTROL PLANE IN THE STARTER BUILD, deliberately.
+      #
+      # Anything baked into a published binary is public: the images below are downloadable from
+      # the Pages site, and a signing secret sitting in one is secret only until somebody runs
+      # grep. Verified 2026-09-14 against a local build -- the control secret was findable at a
+      # fixed offset in the CYD image, and the transport key at a fixed offset in both images.
+      # Regenerating the keypair per CI run does not help: the new secret ships in the new
+      # download.
+      #
+      # So the starter images build WITHOUT -DSIMULACRA_CONFIG_CTRL. There is no CONFIG receive
+      # path to forge a command into, rather than one anybody can sign for. Decoys still generate
+      # the whole crowd (the flag gates only the command path, never churn) and the Vigil still
+      # shows radar, status and the fleet roster.
+      #
+      # Fleet control is a PROVISIONED-regime feature: run tools/gen_ctrl_key.py, which writes
+      # both halves of a keypair that never leaves your machine, then build from source with
+      # -DSIMULACRA_CONFIG_CTRL=1 and reflash every board together.
+
+      # Build BAKED transport key, NO control plane, NO FLEET_PROVISION, then merge the
       # bootloader+partition+app into one offset-0 image via esptool (offsets come from flash_args).
       - name: Build baked + merge
         uses: espressif/esp-idf-ci-action@v1
@@ -70,7 +89,7 @@ jobs:
           target: ${{ matrix.target }}
           path: ${{ matrix.path }}
           command: >-
-            idf.py -B build_ci -DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1 build &&
+            idf.py -B build_ci -DSIMULACRA_ESPNOW=1 build &&
             cd build_ci &&
             esptool.py --chip ${{ matrix.target }} merge_bin -o ../${{ matrix.name }}.bin @flash_args
 

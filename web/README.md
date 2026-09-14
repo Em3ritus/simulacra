@@ -19,10 +19,23 @@ A minimal fleet is **one decoy + one CYD**. Flash each board in turn.
 
 ## Regime
 
-This flasher installs the **baked starter** build: every fleet shares the compile-time key in
-`components/simulacra_radar/radar_key.h`. That key is public, so baked is for *trying it out*, not a
-private deployment. For real use, build the **provisioned** regime from source (unique per-fleet key +
-enrollment) - see the main project README.
+This flasher installs the **baked starter** build: every fleet shares the compile-time transport key
+in `components/simulacra_radar/radar_key.h`. That key is public, so baked is for *trying it out*,
+not a private deployment. For real use, build the **provisioned** regime from source (unique
+per-fleet key + enrollment) - see the main project README.
+
+**Starter builds ship with no control plane.** They are built without `SIMULACRA_CONFIG_CTRL`, so
+decoys have no CONFIG receive path and the Vigil has no CONTROL page. That is deliberate: anything
+baked into a published binary is public, and these images are downloadable from the Pages site, so a
+signing secret in one would be secret only until somebody ran `grep` over it. Rather than ship a
+control plane anybody could sign commands for, starter builds do not compile one. Verified: neither
+starter image contains the signing secret or the control public key at all.
+
+Everything else works. Decoys generate the full crowd (the flag gates the command path, never churn)
+and the Vigil still shows the radar, live status and the fleet roster. Fleet control is a
+provisioned-regime feature: run `python tools/gen_ctrl_key.py`, which writes both halves of a
+keypair that never leaves your machine, then build from source with `-DSIMULACRA_CONFIG_CTRL=1` and
+reflash every board together.
 
 ## Caveats
 

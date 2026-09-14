@@ -163,6 +163,13 @@ the lower-power/everyday-carry variant.
 
 - **Asymmetric by design.** The controller (Vigil) holds the private signing key; decoys hold only
   the public key. A captured decoy can verify commands but cannot forge them or control the fleet.
+- **A published binary cannot hold a secret.** The web-flasher images are downloadable, so anything
+  compiled into them is public: verified by finding the control secret at a fixed offset in a built
+  CYD image. Generating a fresh keypair per release would not help, because the new secret ships in
+  the new download. So **starter builds compile no control plane at all** (no
+  `SIMULACRA_CONFIG_CTRL`), and neither starter image contains the signing key or the control public
+  key. Fleet control exists only in the provisioned regime, where the keypair is generated on your
+  machine by `tools/gen_ctrl_key.py` and never published.
 - **Never trust the wire.** Every synced/seeded template is re-gated (budget + Law-3 + hash recompute)
   on receipt, so a leaked key or spoofed node still cannot inject a forbidden identity.
 - **The fleet transport key is shared and currently unencrypted at rest.** Every enrolled decoy holds
@@ -206,8 +213,16 @@ The fastest way to try Simulacra:
 Open it in desktop **Chrome or Edge**, plug in a board, click **Connect & Flash** - the
 **browser web-flasher** (ESP Web Tools / Web Serial) auto-detects the chip and installs the right
 role (C5 → Ward, C6 → Shade, ESP32 → CYD), no ESP-IDF and no command line. It installs the
-**baked starter** regime (shared public key), so it's for trying Simulacra out, not a private
-deployment. Source and self-host notes: [`web/`](web/).
+**baked starter** regime (shared public transport key, and **no control plane** - see below), so
+it's for trying Simulacra out, not a private deployment. Source and self-host notes:
+[`web/`](web/).
+
+**Starter builds carry no signing key.** They are built without `SIMULACRA_CONFIG_CTRL`: decoys have
+no CONFIG receive path and the Vigil has no CONTROL page. Anything baked into a publicly
+downloadable binary is public, so shipping a control plane in one would mean shipping a control
+plane anybody could command. Crowd generation, radar, status and the fleet roster all work
+unchanged. Fleet control needs a keypair only you hold: run `python tools/gen_ctrl_key.py`, then
+build with `-DSIMULACRA_CONFIG_CTRL=1`.
 
 ### Build from source (full / provisioned regime)
 

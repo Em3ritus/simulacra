@@ -1,10 +1,19 @@
-# The Vigil control SECRET is gitignored (see .gitignore), so a fresh clone has no
-# sim_ctrl_sk.h. Fail with an actionable message rather than a bare "no such file".
-if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/sim_ctrl_sk.h")
+# The Vigil control SECRET is gitignored (see .gitignore), so a fresh clone has no sim_ctrl_sk.h.
+# Only required when the control plane is actually built: without SIMULACRA_CONFIG_CTRL there is no
+# signing path at all, so demanding a signing secret would fail a build that never uses one. That
+# is exactly what the starter / web-flasher images are, and why they build without the flag.
+#
+# Do NOT bring this up by copying sim_ctrl_sk.h.example. That file's public half does not match the
+# committed sim_ctrl_key.h, so a Vigil built from it signs commands every decoy rejects: a control
+# page that silently does nothing. gen_ctrl_key.py writes BOTH halves together, which is the only
+# way they are guaranteed to agree.
+if(DEFINED SIMULACRA_CONFIG_CTRL AND NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/sim_ctrl_sk.h")
     message(FATAL_ERROR
-        "cyd/main/sim_ctrl_sk.h is missing (it is gitignored - it holds the Vigil signing secret).\n"
-        "  Bring-up:  cp cyd/main/sim_ctrl_sk.h.example cyd/main/sim_ctrl_sk.h   (PUBLIC key - no control auth)\n"
-        "  Deploy:    python tools/gen_ctrl_key.py                               (fresh keypair; reflash all boards)")
+        "SIMULACRA_CONFIG_CTRL is set but cyd/main/sim_ctrl_sk.h is missing. It is gitignored "
+        "because it holds the Vigil signing secret, which grants control over every board that "
+        "trusts the matching public half. "
+        "Generate one with: python tools/gen_ctrl_key.py  (writes both halves; reflash ALL boards). "
+        "Or build without the control plane by omitting -DSIMULACRA_CONFIG_CTRL.")
 endif()
 
 idf_component_register(
