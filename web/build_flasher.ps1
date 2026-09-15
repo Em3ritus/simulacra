@@ -36,6 +36,7 @@ New-Item -ItemType Directory -Force $fw | Out-Null
 # Exactly the flags .github/workflows/flasher.yml builds with. Keep the two in step: the whole point
 # of a local flash test is that it exercises what users receive.
 $FLAGS = "-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1 -DSIMULACRA_FLEET_PROVISION=1"
+$PY = "C:\Program Files\Python312"
 
 # target, chip, IDF version, project dir (relative to repo root), output name
 $targets = @(
@@ -48,7 +49,8 @@ foreach ($x in $targets) {
     Write-Host "=== building provisioned $($x.t) ===" -ForegroundColor Cyan
     $projAbs = Join-Path $root $x.proj
     $outAbs = Join-Path $fw $x.out
-    $exportPs1 = "$env:USERPROFILE\esp\$($x.idf)\esp-idf\export.ps1"
+    $idfRoot = "$env:USERPROFILE\esp\$($x.idf)\esp-idf"
+    $exportPs1 = "$idfRoot\export.ps1"
     # Build AND merge for this target in ONE fresh powershell so its IDF version/env is fully isolated
     # -- running successive targets in the parent process leaks 5.5's env into 5.4's build
     # (esp_idf_monitor missing). Child-side vars are backtick-escaped; parent vars interpolate.
@@ -58,6 +60,11 @@ foreach ($x in $targets) {
     # so one shared build_ci would carry a stale target from whichever ran last.
     $bdir = "build_ci_$($x.chip)"
     $child = @"
+# export.ps1 needs IDF_PATH pointed at ITS OWN checkout, and idf.py needs a python on PATH before
+# the export runs. Without both, idf.py is simply not a recognised command and the build dies with
+# a message that says nothing about the real cause.
+`$env:IDF_PATH = '$idfRoot'
+`$env:PATH = '$PY;$PY\Scripts;' + `$env:PATH
 & '$exportPs1' *> `$null
 Set-Location '$projAbs'
 idf.py -B $bdir -DIDF_TARGET=$($x.chip) -DSDKCONFIG=$bdir/sdkconfig $FLAGS build
@@ -66,7 +73,16 @@ Set-Location (Join-Path '$projAbs' '$bdir')
 python -m esptool --chip $($x.chip) merge_bin -o '$outAbs' '@flash_args'
 exit `$LASTEXITCODE
 "@
-    powershell -NoProfile -Command $child
+    # Run from a real script file rather than `-Command <multi-line string>`. Passing a whole script
+    # as one -Command argument makes quoting and line handling the caller's problem, and the symptom
+    # when it goes wrong is a build that dies claiming idf.py does not exist.
+    $childPs1 = Join-Path ([IO.Path]::GetTempPath()) "simulacra_build_$($x.chip).ps1"
+    Set-Content -Path $childPs1 -Value $child -Encoding utf8
+    powershell -NoProfile -ExecutionPolicy Bypass -File $childPs1
+    # Keep the generated script when it fails: the whole point of generating it is that you can run
+    # it by hand to see what went wrong, which is impossible if it deletes itself first.
+    if ($LASTEXITCODE -eq 0) { Remove-Item $childPs1 -ErrorAction SilentlyContinue }
+    else { Write-Host "  child script kept at $childPs1" -ForegroundColor Yellow }
     if ($LASTEXITCODE -ne 0) { throw "build/merge failed for $($x.t)" }
     if (-not (Test-Path $outAbs)) { throw "no output for $($x.t)" }
     Write-Host "  -> $outAbs ($([math]::Round((Get-Item $outAbs).Length/1KB)) KB)" -ForegroundColor Green
