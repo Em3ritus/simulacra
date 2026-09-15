@@ -219,6 +219,30 @@ static void draw_control(radar_gfx_t *g, const radar_ctrl_info_t *c){
     const char *clabel = armed ? "CONFIRM CLEAR?" : "CLEAR THREATS";
     int cx = 120 - (int)strlen(clabel) * 8 / 2;
     radar_gfx_text(g, cx, 261, clabel, armed ? COL_FG : COL_ASH);
+    // PAIR button (provisioned fleets only). Replaces the old press-and-hold gesture: a hold was
+    // invisible, worked from any screen, and did three different things depending on state you
+    // could not see. Here the state IS the label, and the one destructive action behind it -- a
+    // fleet-key rotation, which re-enrolls every node -- takes the same two-tap confirm as
+    // CLEAR THREATS rather than hiding behind a gesture.
+    if (c && c->pair_shown) {
+        bool pending = c->pair_state == RADAR_PAIR_PENDING;
+        bool rot     = c->pair_state == RADAR_PAIR_OPEN && c->pair_rotate_armed;
+        radar_gfx_fill_rect(g, 20, 286, 200, 30, (pending || rot) ? COL_WARN : COL_CRYPT);
+        if (pending) {
+            // Two lines: the fingerprint is read character by character against the decoy's own
+            // serial print, so it is shown whole. Truncating it would make the comparison that
+            // the whole TOFU accept rests on weaker than it looks.
+            radar_gfx_text(g, 120 - 11 * 8 / 2, 288, "ACCEPT NODE", COL_FG);
+            const char *fp = c->pair_fp ? c->pair_fp : "";
+            radar_gfx_text(g, 120 - (int)strlen(fp) * 8 / 2, 302, fp, COL_FG);
+        } else {
+            char pl[24];
+            if (rot)                                snprintf(pl, sizeof pl, "ROTATE FLEET KEY?");
+            else if (c->pair_state == RADAR_PAIR_OPEN) snprintf(pl, sizeof pl, "PAIRING %us", (unsigned)c->pair_secs);
+            else                                    snprintf(pl, sizeof pl, "PAIR NEW NODE");
+            radar_gfx_text(g, 120 - (int)strlen(pl) * 8 / 2, 295, pl, rot ? COL_FG : COL_ASH);
+        }
+    }
 }
 // ---- necromancer HOME: fleet strip + sigil grid + ticker (theme palette) ----
 static void draw_home(radar_gfx_t *g, const radar_wire_status_t *st){

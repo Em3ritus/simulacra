@@ -8,7 +8,8 @@
 //   NODES via --nodeslist <count> [id alive active_devices battery_mv]...
 //   NODE via --node, THREAT via --threat
 //   INFO 2-page console via --info <page nodes sigver sigcount linkage libcount libcap cardmb sdok decoys target pop uptime>
-//   CONTROL live-vs-pending via --control <sel live flash clear_armed>  (live: 0-4 preset, 5 CUSTOM, 254 MIXED, 255 none)
+//   CONTROL live-vs-pending via --control <sel live flash clear_armed turbo_armed [pair_state secs rotate_armed]>
+//   (live: 0-4 preset, 5 CUSTOM, 254 MIXED, 255 none; pair_state: 0 idle, 1 open, 2 pending)
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -190,6 +191,13 @@ int main(int argc, char **argv)
         radar_ctrl_info_t ctrl; memset(&ctrl, 0, sizeof ctrl);
         ctrl.sel_preset = (uint8_t)sel; ctrl.live_preset = (uint8_t)live; ctrl.send_flash = flash != 0;
         ctrl.clear_armed = carm != 0; ctrl.turbo_armed = tarm != 0;
+        // PAIR button: <pair_state> 0 idle / 1 open / 2 pending, then <secs> and <rotate_armed>.
+        // pair_shown is implied by passing the argument at all, so the default (no arg) keeps
+        // rendering the pre-button CONTROL page a non-provisioned build draws.
+        if (argc > a) { ctrl.pair_shown = true; ctrl.pair_state = (uint8_t)atoi(argv[a]); } a++;
+        ctrl.pair_secs = argc > a ? (uint8_t)atoi(argv[a]) : 30; a++;
+        ctrl.pair_rotate_armed = argc > a && atoi(argv[a]) != 0; a++;
+        ctrl.pair_fp = "b882-fbfe-9628-13d3";
         static uint16_t cband[240 * 320];
         radar_render_view(RADAR_VIEW_CONTROL, &st, 0, 0, -1, -1, 0, &ctrl, NULL, NULL, 0,
                           cband, 320, 240, 320, flush_noop, 0);

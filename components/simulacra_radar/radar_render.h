@@ -12,7 +12,22 @@ typedef struct {                 // Vigil librarian snapshot for the LIBRARY pag
     uint32_t save_age_s;         // UINT32_MAX = never
     uint32_t save_bytes;         // size of last sealed blob
 } radar_lib_info_t;
-typedef struct { uint8_t sel_preset; bool send_flash; uint8_t live_preset; bool clear_armed; bool turbo_armed; } radar_ctrl_info_t;   // CONTROL page state
+// Enrollment state for the CONTROL page's PAIR button. Only a provisioned-fleet Vigil has an
+// enrollment authority to drive, so builds without one leave pair_shown false and the CONTROL
+// page renders exactly what it did before the button existed.
+typedef enum {
+    RADAR_PAIR_IDLE = 0,   // no window; the button opens one
+    RADAR_PAIR_OPEN,       // window open, counting down; the button arms a fleet-key rotation
+    RADAR_PAIR_PENDING,    // an unknown node is asking to join; the button accepts it
+} radar_pair_state_t;
+typedef struct {                 // CONTROL page state
+    uint8_t sel_preset; bool send_flash; uint8_t live_preset; bool clear_armed; bool turbo_armed;
+    bool        pair_shown;      // draw the PAIR button at all
+    uint8_t     pair_state;      // radar_pair_state_t
+    uint8_t     pair_secs;       // seconds left in the window (RADAR_PAIR_OPEN only)
+    bool        pair_rotate_armed;   // first tap of the two-tap fleet-key rotation
+    const char *pair_fp;         // pending node's fingerprint, to read against its serial print
+} radar_ctrl_info_t;
 typedef struct {                 // CYD system/fleet snapshot for the INFO page
     uint8_t  node_count;         // meshing nodes
     uint16_t sig_ver;            // signature-DB version

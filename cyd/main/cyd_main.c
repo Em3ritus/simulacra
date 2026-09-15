@@ -248,6 +248,9 @@ static int      s_threat_n;                          // how many of s_threat_has
 static uint8_t  s_info_page;      // INFO view: 0 = system console, 1 = legend
 static uint32_t s_clear_arm_ms;   // CONTROL: CLEAR THREATS armed-at (0 = disarmed); 3s confirm window
 static uint32_t s_turbo_arm_ms;   // CONTROL: TURBO SEND armed-at (0 = disarmed); 3s confirm window
+#ifdef SIMULACRA_FLEET_PROVISION
+static uint32_t s_pair_arm_ms;    // CONTROL: fleet-key ROTATE armed-at (0 = disarmed); 3s confirm window
+#endif
 #define CFG_PRESET_TURBO 5        // SIM_PRESET_TURBO; keep numeric value in sync with main/settings.h
 #ifdef SIMULACRA_FLOCK_FLOOD
 #define CYD_BUILD_TAG "cyd v2 flood"
@@ -650,7 +653,7 @@ static void enroll_process_request(uint32_t now){
     memcpy(s_pending_idpk, idpk, 32); memcpy(s_pending_nd, nd, 24);            // unknown -> TOFU
     enroll_fp(s_pending_fp, sizeof s_pending_fp, idpk);
     s_pending = true;
-    ESP_LOGW(TAG, "enroll: REQUEST from UNKNOWN %s -- match the decoy's serial print, then TAP to accept",
+    ESP_LOGW(TAG, "enroll: REQUEST from UNKNOWN %s -- match the decoy's serial print, then tap ACCEPT NODE on CONTROL",
              s_pending_fp);
 }
 static void enroll_accept_pending(void){
@@ -932,7 +935,7 @@ static bool touch_read_xy(int *x, int *y)
 #ifdef SIMULACRA_FLEET_PROVISION
 // Fleet-enrollment banner, drawn as a top band over whatever view is up (same technique as the
 // freshness overlay below). Puts the pending decoy's fingerprint ON THE SCREEN so the operator
-// can eyeball-match it to the decoy's serial print and long-press to accept, without a serial
+// can eyeball-match it to the decoy's serial print and tap ACCEPT on CONTROL, without a serial
 // console tethered to the CYD. Returns true when it painted the band, so the freshness overlay
 // yields to it. Priority: pending TOFU prompt > open-window status > (nothing).
 static bool draw_enroll_overlay(uint16_t *band, uint32_t now){
@@ -1002,7 +1005,7 @@ void app_main(void)
     fleet_db_selftest();
     fleet_db_load();                 // restore real card state after the self-test scribbles RAM
 #endif
-    ESP_LOGW(TAG, "fleet: epoch %u, %u decoys allowed -- long-press to open a 30s enroll window",
+    ESP_LOGW(TAG, "fleet: epoch %u, %u decoys allowed -- CONTROL > PAIR NEW NODE opens a 30s window",
              (unsigned)fleet_db_epoch(), (unsigned)fleet_allow_count());
 #endif
 
@@ -1024,6 +1027,17 @@ void app_main(void)
         static bool was_press = false;
         bool edge = press && !was_press;                 // fresh contact
         was_press = press;
+        // One line per fresh contact. Touch is a linear fit clamped to the panel edges, so "the
+        // button didn't do anything" is ambiguous between a tap that never happened and one that
+        // landed outside the zone it was aiming at -- silence looks the same either way. This
+        // makes that answerable from a serial capture instead of by guessing at geometry.
+        //
+        // DEBUG, not INFO: CONFIG_LOG_MAXIMUM_LEVEL defaults to INFO, so this compiles out
+        // entirely and costs nothing on a normal build. Raise the level (idf.py menuconfig ->
+        // Component config -> Log -> Maximum log verbosity -> Debug) when moving UI geometry.
+        // Confirmed the bottom band is reachable this way: a tap on the CONTROL PAIR button
+        // reported y=317 against a 240x320 panel.
+        if (edge) ESP_LOGD(TAG, "touch: x=%d y=%d view=%d", tx, ty, (int)ui.view);
 #ifdef SIMULACRA_FLEET_PROVISION
         bool modal_open = s_fleet_modal;                 // roster modal owns input while open
         if (modal_open){
@@ -1032,21 +1046,9 @@ void app_main(void)
 #else
         bool modal_open = false;
 #endif
-#ifdef SIMULACRA_FLEET_PROVISION
-        // Long-press (>=1.5s) = context action: accept a pending TOFU request, else rotate the
-        // fleet key if a window is open, else open a fresh 30s enrollment window. (Short taps
-        // keep their normal navigation meaning; the momentary press that begins a hold may still
-        // register as a tap - gesture zones are bench-tunable in Task 6/7.)
-        static uint32_t s_press_start; static bool s_lp_fired;
-        if (edge) { s_press_start = now; s_lp_fired = false; }
-        if (press && !s_lp_fired && !s_fleet_modal && (now - s_press_start) >= 1500) {
-            s_lp_fired = true;
-            if (s_pending)                    enroll_accept_pending();
-            else if (now < s_pair_until_ms)   enroll_rotate(now);
-            else                              enroll_open_window(now);
-            radar_ui_note_input(&ui, now);
-        }
-#endif
+        // Enrollment used to hang off a >=1.5s press-and-hold here. It is a button on the CONTROL
+        // page now: the hold was invisible, fired from any screen, and did one of three different
+        // things depending on state the operator could not see. See RADAR_VIEW_CONTROL below.
         if (edge && !modal_open) {
             if (ui.view == RADAR_VIEW_HOME) {
                 // HOME sigil grid -> jump to that view. Geometry mirrors draw_home: 2 cols split at
@@ -1075,6 +1077,12 @@ void app_main(void)
                 radar_ui_note_input(&ui, now);           // keep backlight/idle timer fresh
 #ifdef SIMULACRA_CONFIG_CTRL
 #ifdef SIMULACRA_FLEET_PROVISION
+                // Any tap on this page disarms the ROTATE confirm (M-5). Snapshotting it here and
+                // clearing unconditionally means every zone below gets that for free, and only the
+                // PAIR handler can put it back.
+                const uint32_t pair_arm = s_pair_arm_ms; s_pair_arm_ms = 0;
+#endif
+#ifdef SIMULACRA_FLEET_PROVISION
                 if (ty < 28) {                           // top FLEET ROSTER bar -> open roster
                     s_fleet_modal = true; s_fleet_sel = 0; s_fleet_scroll = 0; s_fleet_arm_ms = 0;
                     s_clear_arm_ms = 0; s_turbo_arm_ms = 0;   // any other interaction disarms (M-5)
@@ -1084,6 +1092,24 @@ void app_main(void)
                 if (ty < 40) {                           // top strip = BACK to HOME (drawn "< BACK")
                     s_clear_arm_ms = 0; s_turbo_arm_ms = 0;
                     radar_ui_on_input(&ui, now);
+#ifdef SIMULACRA_FLEET_PROVISION
+                } else if (ty >= 284) {                  // PAIR button (must precede CLEAR's band)
+                    s_clear_arm_ms = 0; s_turbo_arm_ms = 0;
+                    if (s_pending) {                     // TOFU accept: operator has read the fp
+                        enroll_accept_pending();
+                    } else if (now < s_pair_until_ms) {
+                        // Window already open. The only thing left to do here is rotate the fleet
+                        // key, which re-keys every node and drops any that do not re-enroll, so it
+                        // takes a second tap inside 3s exactly like CLEAR THREATS.
+                        if (pair_arm && (uint32_t)(now - pair_arm) < 3000) {
+                            enroll_rotate(now);
+                        } else {
+                            s_pair_arm_ms = now;         // arm
+                        }
+                    } else {
+                        enroll_open_window(now);
+                    }
+#endif
                 } else if (ty >= 246) {                  // CLEAR THREATS band (2-tap arm/confirm)
                     s_turbo_arm_ms = 0;
                     if (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000) {
@@ -1308,6 +1334,21 @@ void app_main(void)
                 .live_preset = agg.preset,
                 .clear_armed = (s_clear_arm_ms && (uint32_t)(now - s_clear_arm_ms) < 3000),
                 .turbo_armed = (s_turbo_arm_ms && (uint32_t)(now - s_turbo_arm_ms) < 3000) };
+#ifdef SIMULACRA_FLEET_PROVISION
+            // PAIR button state. The label IS the state, so an operator who walks up to the board
+            // can see whether a window is open and how long is left without remembering a gesture.
+            ctrl.pair_shown = true;
+            if (s_pending) {
+                ctrl.pair_state = RADAR_PAIR_PENDING;
+                ctrl.pair_fp    = s_pending_fp;
+            } else if (now < s_pair_until_ms) {
+                ctrl.pair_state = RADAR_PAIR_OPEN;
+                ctrl.pair_secs  = (uint8_t)((s_pair_until_ms - now + 999) / 1000);
+                ctrl.pair_rotate_armed = (s_pair_arm_ms && (uint32_t)(now - s_pair_arm_ms) < 3000);
+            } else {
+                ctrl.pair_state = RADAR_PAIR_IDLE;
+            }
+#endif
             // HOME fleet-strip node view: one card per sender, fanned out from the fleet table.
             // Liveness comes from fleet_status_at (stale after FLEET_STATUS_STALE_MS). Until any
             // decoy is heard, show a single SILENT placeholder so HOME is never blank.
