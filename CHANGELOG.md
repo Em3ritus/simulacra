@@ -3,6 +3,31 @@
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md). The README's
 own "Recent updates" section keeps only the latest few entries - this is the full history.
 
+- **The web flasher can finally make a fleet nobody else can read.** It could not before, because
+  anything compiled into a published binary is public: the images are downloadable, so a key baked
+  into one is a key everybody has, and regenerating it per release just ships a new secret in the
+  new download. The previous answer was to compile no control plane at all, which removed the
+  forgeable command path but left the mesh encrypted under a published transport key. That is
+  encryption anybody can undo. The keypair is now generated **in the browser** and written into the
+  images before flashing, and everything downstream follows from it: the Vigil mints a random
+  ESP-NOW transport key on first boot and hands it to decoys over the authenticated enrollment, so
+  that key exists in no binary either. CI builds the provisioned regime with a placeholder no board
+  ever runs. Fixing it surfaced a third way to brick a patched image, on top of the segment checksum
+  and appended SHA256 already known: the published images are **merged** (padding, bootloader,
+  partition table, app), so the app does not start at byte 0, and walking segments from there parses
+  the bootloader and hashes the wrong range - an image that flashes perfectly and never boots. Both
+  patchers now locate the app through the partition table, and consult it *before* the byte-0
+  shortcut, because the bootloader shares the app's 0xE9 magic and sits at offset 0 on C6 and H2.
+  Verified on hardware: a browser-keyed merged image boots, loads its app from 0x10000, and reads
+  back with the generated key at the expected offset.
+- **Enrollment is a button, not a hidden gesture.** Pairing hung off a 1.5 s press-and-hold anywhere
+  on the screen, which was invisible, fired from any view, and did one of three different things
+  depending on state the operator could not see. It is now a labelled button at the bottom of
+  CONTROL whose text *is* the state: `PAIR NEW NODE`, `PAIRING 24s`, `ROTATE FLEET KEY?`, or
+  `ACCEPT NODE` with the joining board's full fingerprint. Rotation re-keys every node and drops
+  anything that does not re-enroll, so it takes the same two-tap confirm as CLEAR THREATS rather
+  than hiding behind a gesture, and the fingerprint is shown whole because the accept is TOFU and a
+  truncated one would weaken the only check it rests on.
 - **No persistent identifiers, anywhere.** A slice of the crowd used to hold one static address for
   4-12 h, added so the fleet would reproduce the long presence tail real environments have. That
   inverted the point: a decoy holding one address for hours, on a board carried by the operator, is

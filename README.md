@@ -27,7 +27,7 @@ signal out of the crowd - while passively watching for the trackers that follow 
 It is built from cooperating nodes, each playing to a different board's strengths, coordinated
 over an encrypted ESP-NOW link.
 
-> **Try it in your browser - no toolchain.** Plug in a board and flash a starter fleet at
+> **Try it in your browser - no toolchain.** Generate a fleet key, plug in a board and flash at
 > **[em3ritus.github.io/simulacra](https://em3ritus.github.io/simulacra/)** (desktop Chrome/Edge).
 
 **Jump to:** [Legal](#️-legal--responsible-use) · [How it works](#how-it-works) ·
@@ -163,13 +163,15 @@ the lower-power/everyday-carry variant.
 
 - **Asymmetric by design.** The controller (Vigil) holds the private signing key; decoys hold only
   the public key. A captured decoy can verify commands but cannot forge them or control the fleet.
-- **A published binary cannot hold a secret.** The web-flasher images are downloadable, so anything
-  compiled into them is public: verified by finding the control secret at a fixed offset in a built
-  CYD image. Generating a fresh keypair per release would not help, because the new secret ships in
-  the new download. So **starter builds compile no control plane at all** (no
-  `SIMULACRA_CONFIG_CTRL`), and neither starter image contains the signing key or the control public
-  key. Fleet control exists only in the provisioned regime, where the keypair is generated on your
-  machine by `tools/gen_ctrl_key.py` and never published.
+- **A published binary cannot hold a secret, so the keys are made where you are.** The web-flasher
+  images are downloadable, so anything compiled into them is public: verified by finding the control
+  secret at a fixed offset in a built CYD image. Generating a fresh keypair per release would not
+  help, because the new secret ships in the new download. So the flasher **generates the fleet's
+  Ed25519 keypair in your browser** and rewrites it into the images before flashing; what CI compiles
+  in is a placeholder no board ever runs. Everything downstream is then per-install for free, because
+  the Vigil mints a random ESP-NOW transport key on first boot and hands it to decoys over the
+  authenticated enrollment, so that key exists in no binary either. `tools/gen_ctrl_key.py` does the
+  same job for a from-source build and produces the same format.
 - **Never trust the wire.** Every synced/seeded template is re-gated (budget + Law-3 + hash recompute)
   on receipt, so a leaked key or spoofed node still cannot inject a forbidden identity.
 - **The fleet transport key is shared and currently unencrypted at rest.** Every enrolled decoy holds
@@ -204,25 +206,30 @@ every screen and setting on the Vigil console does once it's flashed, see the
 
 ## Build & flash
 
-### Flash from your browser - no toolchain (starter fleet)
+### Flash from your browser - no toolchain
 
-The fastest way to try Simulacra:
+The fastest way to build a fleet:
 
 ### **→ [em3ritus.github.io/simulacra](https://em3ritus.github.io/simulacra/)**
 
-Open it in desktop **Chrome or Edge**, plug in a board, click **Connect & Flash** - the
-**browser web-flasher** (ESP Web Tools / Web Serial) auto-detects the chip and installs the right
-role (C5 → Ward, C6 → Shade, ESP32 → CYD), no ESP-IDF and no command line. It installs the
-**baked starter** regime (shared public transport key, and **no control plane** - see below), so
-it's for trying Simulacra out, not a private deployment. Source and self-host notes:
-[`web/`](web/).
+Open it in desktop **Chrome or Edge**. Generate a fleet key, click **Prepare images**, then plug in
+each board and **Connect & Flash** - the **browser web-flasher** (ESP Web Tools / Web Serial)
+auto-detects the chip and installs the right role (C5 → Ward, C6 → Shade, ESP32 → CYD), no ESP-IDF
+and no command line. Source and self-host notes: [`web/`](web/).
 
-**Starter builds carry no signing key.** They are built without `SIMULACRA_CONFIG_CTRL`: decoys have
-no CONFIG receive path and the Vigil has no CONTROL page. Anything baked into a publicly
-downloadable binary is public, so shipping a control plane in one would mean shipping a control
-plane anybody could command. Crowd generation, radar, status and the fleet roster all work
-unchanged. Fleet control needs a keypair only you hold: run `python tools/gen_ctrl_key.py`, then
-build with `-DSIMULACRA_CONFIG_CTRL=1`.
+**The keys are generated in your browser, not shipped in the download.** Anything compiled into a
+publicly downloadable binary is public, so the page makes an Ed25519 keypair locally and rewrites it
+into the images before they are flashed. The Vigil then mints a random ESP-NOW transport key on
+first boot and hands it to decoys during enrollment, so nothing that matters ever existed in a
+published file. Flash every board from the same browser, or import your backup first, or you will
+end up with two fleets that ignore each other.
+
+**Save the key backup.** It lives only in that browser profile. Without it, adding a board later
+means re-keying and reflashing every board you already did.
+
+This is not full device security: there is no flash encryption, so anyone who takes a board can
+recover that fleet's transport key from it. The Vigil can revoke a board, which re-keys the fleet and
+re-enrolls the rest.
 
 ### Build from source (full / provisioned regime)
 
@@ -279,7 +286,7 @@ tools/decoy_audit/        score how separable the BLE decoys are from a real cro
 tools/probe_audit/        verify Wi-Fi probe frames are archetype-faithful and Law-3 safe
 tools/radar_audit/        verify the Vigil console's render/control/fleet-status logic on the host
 tools/seq_gate/           post-flash check that each fake phone's 802.11 sequence stays independent
-web/                      browser web-flasher (ESP Web Tools) - flash a starter fleet with no toolchain
+web/                      browser web-flasher - keys a fleet locally, then flashes it, no toolchain
 docs/                     design specs, implementation plans, and the roadmap
 ```
 
@@ -310,6 +317,17 @@ Each tool has its own README with build and run steps.
 Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking milestones live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **The web flasher makes a fleet nobody else can read.** A published binary cannot hold a secret,
+  so a key baked into a downloadable image protects nothing. The fleet's Ed25519 keypair is now
+  generated **in your browser** and written into the images before flashing; the Vigil then mints a
+  random ESP-NOW transport key on first boot and hands it to decoys over the authenticated
+  enrollment, so nothing that matters was ever published. Fixing it surfaced a third way to brick a
+  patched image: the published images are *merged*, so the app does not start at byte 0, and walking
+  segments from there parses the bootloader and hashes the wrong range. Verified on hardware.
+- **Enrollment is a button, not a hidden gesture.** Pairing used to hang off a 1.5 s press-and-hold
+  anywhere on the screen, which did one of three different things depending on state you could not
+  see. It is a labelled button on CONTROL now, and its text is the state: `PAIR NEW NODE`,
+  `PAIRING 24s`, `ROTATE FLEET KEY?`, or `ACCEPT NODE` with the joining board's full fingerprint.
 - **No persistent identifiers, anywhere.** A slice of the crowd used to hold one static address for
   4-12 h so the fleet would reproduce the long presence tail real environments have. That inverted
   the point - a decoy holding one address for hours, carried by the operator, is a *better* tracking
@@ -340,10 +358,12 @@ Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking m
   **per-node telemetry page**, a **per-threat detail card**, a two-page **INFO** system/fleet console
   with a colour/posture **legend**, **live-vs-pending preset** state (flags a `MIXED` fleet), and a
   signed, two-tap **CLEAR THREATS** control.
-- **Browser web-flasher - [live](https://em3ritus.github.io/simulacra/).** Flash a starter fleet
-  from a web page - ESP Web Tools over Web Serial, auto-detecting the board and installing the right
-  role. A CI action builds the three firmwares and deploys the flasher to GitHub Pages on every
-  firmware change, so no binaries ever live in git.
+- **Browser web-flasher - [live](https://em3ritus.github.io/simulacra/).** Build a whole fleet from
+  a web page - ESP Web Tools over Web Serial, auto-detecting the board and installing the right role.
+  The fleet's signing keypair is generated in the browser and written into the images before
+  flashing, so the published download holds only a placeholder. A CI action builds the three
+  firmwares and deploys the flasher to GitHub Pages on every firmware change, so no binaries ever
+  live in git.
 
 ## Contributing
 
