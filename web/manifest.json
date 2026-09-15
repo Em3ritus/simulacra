@@ -1,10 +1,25 @@
 {
   "name": "Simulacra",
-  "version": "0.2.0-baked",
+  "version": "0.3.0-provisioned",
   "new_install_prompt_erase": true,
   "builds": [
-    { "chipFamily": "ESP32-C5", "parts": [ { "path": "firmware/decoy-c5.bin", "offset": 0 } ] },
-    { "chipFamily": "ESP32-C6", "parts": [ { "path": "firmware/decoy-c6.bin", "offset": 0 } ] },
-    { "chipFamily": "ESP32",    "parts": [ { "path": "firmware/cyd.bin",       "offset": 0 } ] }
+    {
+      "chipFamily": "ESP32-C5",
+      "simulacra_role": "decoy",
+      "simulacra_key": "ctrl_pk",
+      "parts": [{ "path": "firmware/decoy-c5.bin", "offset": 0 }]
+    },
+    {
+      "chipFamily": "ESP32-C6",
+      "simulacra_role": "decoy",
+      "simulacra_key": "ctrl_pk",
+      "parts": [{ "path": "firmware/decoy-c6.bin", "offset": 0 }]
+    },
+    {
+      "chipFamily": "ESP32",
+      "simulacra_role": "vigil",
+      "simulacra_key": "ctrl_sk",
+      "parts": [{ "path": "firmware/cyd.bin", "offset": 0 }]
+    }
   ]
 }

@@ -1,12 +1,18 @@
 # The Vigil control SECRET is gitignored (see .gitignore), so a fresh clone has no sim_ctrl_sk.h.
 # Only required when the control plane is actually built: without SIMULACRA_CONFIG_CTRL there is no
-# signing path at all, so demanding a signing secret would fail a build that never uses one. That
-# is exactly what the starter / web-flasher images are, and why they build without the flag.
+# signing path at all, so demanding a signing secret would fail a build that never uses one.
 #
-# Do NOT bring this up by copying sim_ctrl_sk.h.example. That file's public half does not match the
-# committed sim_ctrl_key.h, so a Vigil built from it signs commands every decoy rejects: a control
-# page that silently does nothing. gen_ctrl_key.py writes BOTH halves together, which is the only
-# way they are guaranteed to agree.
+# BUILDING LOCALLY: do NOT satisfy this by copying sim_ctrl_sk.h.example. That file's public half
+# does not match the committed sim_ctrl_key.h, so a Vigil built from it signs commands every decoy
+# rejects: a control page that silently does nothing. Run gen_ctrl_key.py, which writes BOTH halves
+# together and is the only way they are guaranteed to agree.
+#
+# THE WEB FLASHER IS THE ONE EXCEPTION, and only because it never ships what it builds. CI copies
+# the .example purely to give the build a key block to compile, then the browser rewrites both
+# halves in the downloaded images with a freshly generated, matching pair before anything is
+# flashed (web/keygen.js, web/keypatch.js). The mismatch above is therefore irrelevant there: no
+# board ever runs those placeholder bytes. If you ever make CI publish an image the browser does
+# NOT patch, this exception stops being true and the mismatch is back.
 if(DEFINED SIMULACRA_CONFIG_CTRL AND NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/sim_ctrl_sk.h")
     message(FATAL_ERROR
         "SIMULACRA_CONFIG_CTRL is set but cyd/main/sim_ctrl_sk.h is missing. It is gitignored "
