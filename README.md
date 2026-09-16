@@ -274,6 +274,20 @@ python tools/gen_ctrl_key.py       # rewrites the secret + public key headers
 then rebuild and reflash **every** board together (decoys bake the new public key, the Vigil the new
 secret) - a half-rotated fleet stops verifying.
 
+**If your fleet was flashed from the browser, adopt its key first.** That fleet's key exists only in
+the browser profile that made it, its backup file, and the boards; this tree holds a different one.
+Building from source and flashing the Vigil silently re-keys it, and every enrolled decoy stops
+verifying while the roster still lists them - a fleet that looks fine and answers nothing.
+
+```sh
+python tools/gen_ctrl_key.py --from-backup fleet-key.json   # adopt; prints the fingerprint
+python tools/gen_ctrl_key.py --export-backup fleet.json     # or go the other way
+```
+
+Check the fingerprint it prints against the one the flasher shows before flashing anything.
+`--from-backup` also takes a bare 32-byte hex seed, or the 64-byte `seed||pub` secret read off a
+board, so a fleet can be recovered from hardware if the backup is lost.
+
 ## Repository layout
 
 ```

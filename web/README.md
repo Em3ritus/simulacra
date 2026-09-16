@@ -47,6 +47,29 @@ later means re-keying and reflashing every board you already did.
 `python tools/gen_ctrl_key.py` does the same job for a from-source build, and produces the same
 format, so a fleet keyed either way is interchangeable.
 
+### Rebuilding from source after a browser flash
+
+A browser-keyed fleet's key lives in three places: that browser profile, the backup file, and the
+boards. The source tree still holds a **different** key, so building and flashing the Vigil from
+source silently re-keys it. Every enrolled decoy stops verifying its signatures, the roster still
+lists them, and nothing on screen says why.
+
+Adopt the fleet's key into the tree first, then build as normal:
+
+```sh
+python tools/gen_ctrl_key.py --from-backup simulacra-fleet-key-<fingerprint>.json
+```
+
+It prints the fingerprint it adopted. Check that against the one the flasher shows before you flash
+anything. Going the other way, to add a browser-flashed board to a fleet you keyed from source:
+
+```sh
+python tools/gen_ctrl_key.py --export-backup fleet.json    # then import it in the page
+```
+
+Both directions produce the same file format, and `--from-backup` also accepts a bare 32-byte hex
+seed or the 64-byte `seed||pub` secret you get from reading the block off a board.
+
 ### What this does not give you
 
 - **No flash encryption.** Anyone who takes a board and reads its flash recovers that fleet's

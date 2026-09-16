@@ -725,12 +725,22 @@ static void draw_fleet_modal(uint16_t *band, uint32_t now){
     }
 }
 
-// Full-width entry bar drawn at the top of the CONTROL page (tap to open the roster).
+// Roster entry bar, painted over the top strip of CONTROL after draw_control has already run.
+//
+// It SHARES that strip with "< BACK", which draw_control puts at x=8. The tab used to span the full
+// width and covered it completely: BACK was invisible, and because the tap router sends everything
+// above y=28 to the roster, the only way home was an unmarked 12px sliver between y=28 and y=40.
+// So the tab now starts at FLEET_BAR_SPLIT_X and BACK is redrawn here, in the strip this function
+// owns. The tap router splits on the same constant -- keep the two together, or the button you can
+// see and the thing that actually happens part company.
+#define FLEET_BAR_SPLIT_X 60
+
 static void draw_fleet_bar(uint16_t *band){
     radar_gfx_t g = { band, LCD_W, 0, 40 };
     radar_gfx_clear(&g, 0x0000);
-    radar_gfx_fill_rect(&g, 2, 2, LCD_W - 4, 24, 0x02D4);   // dark teal tab
-    radar_gfx_text(&g, 40, 10, "[ FLEET ROSTER ]", 0xFFFF); // 16 ch
+    radar_gfx_text(&g, 8, 10, "< BACK", 0xB59D);                              // same slot draw_control uses
+    radar_gfx_fill_rect(&g, FLEET_BAR_SPLIT_X + 2, 2, LCD_W - FLEET_BAR_SPLIT_X - 4, 24, 0x02D4);
+    radar_gfx_text(&g, 86, 10, "[ FLEET ROSTER ]", 0xFFFF);                   // 16 ch, centred in the tab
     cyd_flush(0, 28, band, NULL);
 }
 
@@ -1083,7 +1093,9 @@ void app_main(void)
                 const uint32_t pair_arm = s_pair_arm_ms; s_pair_arm_ms = 0;
 #endif
 #ifdef SIMULACRA_FLEET_PROVISION
-                if (ty < 28) {                           // top FLEET ROSTER bar -> open roster
+                // Top strip is split: BACK on the left, the ROSTER tab on the right. Geometry comes
+                // from draw_fleet_bar, which draws both, so the x split must be the same constant.
+                if (ty < 28 && tx >= FLEET_BAR_SPLIT_X) {   // FLEET ROSTER tab -> open roster
                     s_fleet_modal = true; s_fleet_sel = 0; s_fleet_scroll = 0; s_fleet_arm_ms = 0;
                     s_clear_arm_ms = 0; s_turbo_arm_ms = 0;   // any other interaction disarms (M-5)
                     radar_ui_note_input(&ui, now);
