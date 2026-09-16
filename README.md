@@ -128,10 +128,12 @@ the lower-power/everyday-carry variant.
   is **redrawn on every MAC rotation**, so it can't be used to link one MAC to the next.
 - On-device **self-learning** of ambient device *shapes* into new decoy archetypes (structure-only,
   Law-3 gated), synced across the fleet and persisted to an AES-GCM-sealed SD library on Vigil, keyed
-  from the CONTROL secret in the provisioned regime (`-DSIMULACRA_FLEET_PROVISION=1` - rotates
-  automatically with `tools/gen_ctrl_key.py`). The baked-key demo regime still keys it from a
-  published, non-secret placeholder constant - an accepted tradeoff for that regime, matching its
-  documented "shared key, not private" posture elsewhere.
+  from the CONTROL secret in the provisioned regime (`-DSIMULACRA_FLEET_PROVISION=1`, which is what
+  the web flasher builds and what `tools/gen_ctrl_key.py` rotates). Building from source *without*
+  that flag gives the baked-key regime, which keys the library from a published, non-secret
+  placeholder constant - an accepted tradeoff there, matching its documented "shared key, not
+  private" posture. Re-keying the Vigil orphans an existing SD library, which it handles by
+  rebuilding from decoy sync rather than failing.
 - **Passive follower detection** and **tracker/surveillance fingerprint** matching.
 - **Signed fleet control:** Vigil pushes Ed25519-signed behaviour presets to every decoy over
   ESP-NOW, in two modes. **AUTO** sizes each board's crowd from the ambient device density it
@@ -152,8 +154,11 @@ the lower-power/everyday-carry variant.
   as every other member, though - see Security model below for what that key protects and doesn't.
 - **Vigil console:** an at-a-glance **protection posture** - one honest word for your current state
   (`CLOAKED` / `EXPOSED` when there's no crowd to hide in / `HUNTED` when a follower is confirmed /
-  `DARK`) - plus a live radar/threat display, grouped status pages, a per-node fleet roster, and
-  enroll/revoke control for fleet members. Tap in for depth: a **per-node telemetry console**, a
+  `DARK`) - plus a live radar/threat display, grouped status pages, and a per-node fleet roster.
+  **Pairing is a labelled button on CONTROL**, not a hidden gesture: its text is the state
+  (`PAIR NEW NODE` → `PAIRING 24s` → `ACCEPT NODE` with the joining board's full fingerprint, which
+  you read against what that board prints), and revoking a member takes a two-tap confirm because it
+  re-keys the whole fleet. Tap in for depth: a **per-node telemetry console**, a
   **per-threat detail card** (device class, confidence, vendor, persistence), a two-page **system
   console + colour legend**, and signed fleet control - all from the touch panel, no laptop.
 - **Fleet health at a glance:** decoys report TX self-health and battery state over the link, so
@@ -300,6 +305,8 @@ tools/decoy_audit/        score how separable the BLE decoys are from a real cro
 tools/probe_audit/        verify Wi-Fi probe frames are archetype-faithful and Law-3 safe
 tools/radar_audit/        verify the Vigil console's render/control/fleet-status logic on the host
 tools/seq_gate/           post-flash check that each fake phone's 802.11 sequence stays independent
+tools/gen_ctrl_key.py     generate, import or export a fleet's control signing keypair
+tools/patch_keyblock.py   rewrite a key inside a built image (reference for the browser patcher)
 web/                      browser web-flasher - keys a fleet locally, then flashes it, no toolchain
 docs/                     design specs, implementation plans, and the roadmap
 ```
@@ -323,6 +330,14 @@ verified against the same source that runs on-device:
   the exact source that runs on the CYD.
 - **`tools/seq_gate/`** - a two-board post-flash gate confirming each fake phone keeps its own
   802.11 sequence counter after an IDF/toolchain bump.
+- **`tools/gen_ctrl_key.py`** - the fleet's control keypair: generate one, **adopt** an existing
+  fleet's with `--from-backup` (a browser backup, a hex seed, or the secret read off a board), or
+  hand yours to the browser with `--export-backup`. Adopt before building from source for a fleet
+  that was flashed from the web page, or the Vigil you flash will not be the one your decoys trust.
+- **`tools/patch_keyblock.py`** - rewrite a key block inside a built image and repair the image's
+  integrity. This is the reference implementation of `web/keypatch.js`; the browser module is diffed
+  against it byte for byte in `web/test_keypatch.py`, because two implementations of a byte-exact
+  format drift quietly and the symptom is a board that flashes cleanly and never boots.
 
 Each tool has its own README with build and run steps.
 
