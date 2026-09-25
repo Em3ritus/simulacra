@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="The Simulacra Vigil controller screen, running in your browser from the firmware's own render code. Simulated fleet; no hardware needed.">
-<title>Vigil console — Simulacra</title>
+<title>Vigil console · Simulacra</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -86,7 +86,7 @@ img{max-width:100%}
 
   <div class="sim-banner">
     <span class="tag">SIMULATED</span>
-    <p>No hardware is connected. The fleet below is <b>invented</b> — fake nodes, fake threats, fake
+    <p>No hardware is connected. The fleet below is <b>invented</b>: fake nodes, fake threats, fake
        numbers. What is real is the drawing: every pixel comes from the firmware's own render code,
        compiled to WebAssembly. <b>Nothing here is measured data.</b></p>
   </div>
@@ -94,7 +94,7 @@ img{max-width:100%}
   <p class="backlink"><a href="./">&larr; back to the flasher</a></p>
   <h1>Vigil console</h1>
   <p class="lede">This is the screen on the controller board, running in your browser.
-     Tap the icons to move around, exactly as you would on the device — then use the buttons to make
+     Tap the icons to move around, exactly as you would on the device. Then use the buttons to make
      things happen to the imaginary fleet and watch it react.</p>
 
   <div class="stage">
@@ -133,14 +133,14 @@ img{max-width:100%}
         </div>
       </section>
       <p class="note">Try <b>Threat escalates</b> a couple of times and watch the status word in the
-        top bar go to <span style="color:var(--hunter)">HUNTED</span> — that transition is the real
+        top bar go to <span style="color:var(--hunter)">HUNTED</span>. That transition is the real
         firmware's own logic, not something this page decides. <b>Empty the room</b> takes the
         ambient crowd away, which is what <span style="color:var(--warn)">EXPOSED</span> means: the
         decoys are running but there is nothing to blend into.</p>
       <p class="note"><b>Exposure check</b> is the one to try if you only try one. It listens for a
         few seconds, spots the device that suddenly starts shouting, and lists the network names it
         is announcing it remembers. On real hardware that device is your phone and those names are
-        yours. <b>The four shown here are invented</b> — they are written in the router-default style
+        yours. <b>The four shown here are invented.</b> They are written in the router-default style
         the project's own SSID pool uses, and none came from a capture.</p>
     </div>
   </div>
@@ -149,10 +149,10 @@ img{max-width:100%}
     <h3 style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--arcane);margin:0 0 12px">What is real here</h3>
     <table>
       <tr><td>radar_render.c</td><td>every screen, unmodified firmware source</td></tr>
-      <tr><td>radar_gfx.c</td><td>the rasteriser — lines, text, the 8×8 font</td></tr>
+      <tr><td>radar_gfx.c</td><td>the rasteriser: lines, text, the 8×8 font</td></tr>
       <tr><td>radar_ui.c</td><td>view state machine, idle timers, auto-wake on a new follower</td></tr>
       <tr><td>fleet_status.c</td><td>node aggregation, stale pruning, threat union, MIXED preset</td></tr>
-      <tr class="fake"><td>sim_fleet.c</td><td><b>the only invented part</b> — stands in for the radio</td></tr>
+      <tr class="fake"><td>sim_fleet.c</td><td><b>the only invented part</b>, standing in for the radio</td></tr>
     </table>
     <p class="note">Tap targets are mapped in this page rather than shared with the firmware, because
       the device's are bound up with radio and enrollment calls that can't run in a browser. A zone
@@ -216,7 +216,7 @@ img{max-width:100%}
     var p = POSTURE[api.posture()]||'?';
     ro.innerHTML = 'posture <b class="p-'+p+'">'+p+'</b> &nbsp; nodes <b>'+api.nodes()+
                    '</b> &nbsp; threats <b>'+api.threats()+'</b><br><span id="ev">'+
-                   (M.UTF8ToString(api.lastEvent())||'—')+'</span>';
+                   (M.UTF8ToString(api.lastEvent())||'idle')+'</span>';
     requestAnimationFrame(frame);
   }
 
@@ -250,7 +250,7 @@ img{max-width:100%}
 </script>
 
 <p class="outro">This is the screen on the <b>Vigil</b> controller board. The decoy boards have no
-  screen &mdash; this is the one you look at. If you want the real thing,
+  screen, so this is the one you look at. If you want the real thing,
   <a href="./">the flasher</a> will put it on a board in about a minute.</p>
 </div>
 </body>
