@@ -12,6 +12,19 @@ name: web-flasher
 
 on:
   workflow_dispatch:            # manual "Run workflow" button
+
+  # Validate the console demo on the PR that changes it. Only the webdemo job runs here -- the
+  # firmware matrix and the Pages deploy stay on main. Without this the wasm build's first ever
+  # execution would be a push to production, which is the one place it must not break.
+  pull_request:
+    paths:
+      - 'web/vigil.html'
+      - 'tools/radar_audit/vigil_web.c'
+      - 'tools/radar_audit/sim_fleet.c'
+      - 'tools/radar_audit/sim_fleet.h'
+      - 'tools/radar_audit/build_web.sh'
+      - '.github/workflows/flasher.yml'
+
   push:
     branches: [main]
     paths:                      # rebuild only when firmware or the page changes
@@ -39,6 +52,7 @@ concurrency:                    # never race two Pages deploys
 
 jobs:
   build:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -144,7 +158,7 @@ jobs:
   deploy:
     # Waits for webdemo, but only *requires* build. If the demo failed, the flasher still ships.
     needs: [build, webdemo]
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
