@@ -15,9 +15,30 @@
 //
 // then rebuild and reflash EVERY board together (decoys bake the public key, the CYD the
 // secret) - a half-rotated fleet stops verifying.
-static const uint8_t SIMULACRA_CTRL_SK[64] = {
+//
+// THIS LAYOUT MUST MATCH tools/gen_ctrl_key.py's SK_TMPL, byte for byte. CI builds the
+// published Vigil image from THIS FILE (it cannot use the gitignored real one), and the
+// web flasher finds the 16-byte magic below to rewrite the 64 bytes after it with a
+// keypair generated in the browser. A template without the magic still compiles and still
+// boots -- SIMULACRA_CTRL_SK resolves either way - but the published image is then
+// unpatchable, and the flasher fails for everyone with "key block SIMULACRA:CTRLSK not
+// found in the app image". That is exactly what happened between the browser-keying
+// release and 2026-09-25 (issue #10).
+//
+// KEEP THE LAYOUT: magic immediately followed by the key, packed, no padding.
+typedef struct __attribute__((packed)) {
+    unsigned char magic[16];
+    unsigned char key[64];
+} sim_ctrl_sk_block_t;
+
+__attribute__((used))
+static const sim_ctrl_sk_block_t SIMULACRA_CTRL_SK_BLOCK = {
+    { 'S','I','M','U','L','A','C','R','A',':','C','T','R','L','S','K' },
+    {
     0xfb, 0x40, 0x01, 0xcf, 0xda, 0xe2, 0xa7, 0x55, 0x1c, 0x1b, 0x1a, 0x5d, 0x1e, 0xdf, 0xb4, 0xe9,
     0x3b, 0x33, 0x5c, 0xec, 0x78, 0x19, 0x29, 0x13, 0x21, 0xad, 0xcf, 0xbf, 0xe3, 0x15, 0x01, 0xc4,
     0x23, 0x98, 0xab, 0x6c, 0x11, 0x47, 0x30, 0xe3, 0x7f, 0x39, 0x3a, 0xd9, 0xd9, 0x5a, 0x45, 0x0a,
     0x10, 0xf1, 0x5d, 0x50, 0x57, 0x26, 0x04, 0x7d, 0x5a, 0xd9, 0xd4, 0x4e, 0x76, 0x7a, 0xf8, 0x4f
+    }
 };
+#define SIMULACRA_CTRL_SK (SIMULACRA_CTRL_SK_BLOCK.key)
