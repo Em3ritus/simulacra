@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="The Simulacra Vigil controller screen, running in your browser from the firmware's own render code. Simulated fleet; no hardware needed.">
+<title>Vigil console — Simulacra</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --void:#0B0A10; --crypt:#15131F; --panel:#1C1929; --edge:#2E2842;
+  --bone:#E8E4F0; --ash:#7E7695; --dim:#565070;
+  --arcane:#8B6FE8; --teal:#4FD6B8; --hunter:#FF6B52; --warn:#FFB347;
+  --mono:"IBM Plex Mono",Consolas,monospace;
+  --sans:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{background:var(--void);color:var(--bone);margin:0;font-family:var(--sans)}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 16px 56px}
+
+.sim-banner{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  border:1px solid var(--warn);background:rgba(255,179,71,.10);
+  padding:12px 16px;margin-bottom:22px;
+}
+.sim-banner .tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--warn);
+  border:1px solid var(--warn);padding:3px 8px;white-space:nowrap}
+.sim-banner p{margin:0;font-size:14px;line-height:1.5;color:#D8CFC0}
+
+h1{font-family:var(--sans);font-weight:600;font-size:1.6rem;margin:0 0 4px;letter-spacing:-.02em}
+.lede{color:var(--ash);font-size:.95rem;margin:0 0 24px;max-width:62ch;line-height:1.55}
+.lede b{color:var(--bone);font-weight:600}
+
+.stage{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:start}
+@media(max-width:720px){.stage{grid-template-columns:1fr}}
+
+.bezel{background:#000;border:1px solid var(--edge);border-radius:10px;padding:14px;
+  box-shadow:0 0 0 1px #000 inset, 0 8px 28px rgba(0,0,0,.6);width:max-content;margin:0 auto}
+canvas{display:block;image-rendering:pixelated;cursor:pointer;background:#000;
+  width:240px;height:320px}
+@media(min-width:520px){canvas{width:360px;height:480px}}
+.bezel .chin{display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--dim);padding-top:10px}
+
+.readout{font-family:var(--mono);font-size:12px;color:var(--ash);margin-top:12px;
+  border-top:1px solid var(--edge);padding-top:10px;line-height:1.7}
+.readout b{color:var(--bone);font-weight:500}
+.readout .p-CLOAKED{color:var(--teal)} .readout .p-EXPOSED{color:var(--warn)}
+.readout .p-DARK{color:var(--dim)}     .readout .p-HUNTED{color:var(--hunter)}
+#ev{color:var(--arcane)}
+
+.controls h3{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--arcane);
+  margin:0 0 10px;font-weight:600}
+.controls section{margin-bottom:22px}
+.btns{display:flex;flex-wrap:wrap;gap:7px}
+button{font-family:var(--mono);font-size:12px;background:var(--crypt);color:var(--bone);
+  border:1px solid var(--edge);padding:7px 11px;cursor:pointer;transition:none}
+button:hover{background:var(--panel);border-color:var(--arcane)}
+button:active{background:var(--arcane);color:var(--void)}
+button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+button.warn{border-color:#5A3A2A;color:var(--warn)}
+button.warn:hover{border-color:var(--warn)}
+
+.note{font-size:12.5px;color:var(--dim);line-height:1.6;margin:18px 0 0;max-width:60ch}
+.note code{font-family:var(--mono);color:var(--ash)}
+.prov{margin-top:30px;border-top:1px solid var(--edge);padding-top:18px}
+.prov table{border-collapse:collapse;font-size:12.5px;width:100%;max-width:640px}
+.prov td{padding:5px 14px 5px 0;vertical-align:top;color:var(--ash);border-bottom:1px solid #1A1726}
+.prov td:first-child{font-family:var(--mono);color:var(--bone);white-space:nowrap}
+.prov .fake td:first-child{color:var(--warn)}
+#boot{font-family:var(--mono);font-size:12px;color:var(--ash)}
+
+.backlink{margin:0 0 14px}
+.backlink a{font-family:var(--mono);font-size:12px;color:var(--arcane);text-decoration:none}
+.backlink a:hover{text-decoration:underline}
+.outro{margin:28px 0 0;font-size:13.5px;color:var(--ash);line-height:1.6;max-width:62ch}
+.outro a{color:var(--arcane)}
+img{max-width:100%}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="sim-banner">
+    <span class="tag">SIMULATED</span>
+    <p>No hardware is connected. The fleet below is <b>invented</b> — fake nodes, fake threats, fake
+       numbers. What is real is the drawing: every pixel comes from the firmware's own render code,
+       compiled to WebAssembly. <b>Nothing here is measured data.</b></p>
+  </div>
+
+  <p class="backlink"><a href="./">&larr; back to the flasher</a></p>
+  <h1>Vigil console</h1>
+  <p class="lede">This is the screen on the controller board, running in your browser.
+     Tap the icons to move around, exactly as you would on the device — then use the buttons to make
+     things happen to the imaginary fleet and watch it react.</p>
+
+  <div class="stage">
+    <div>
+      <div class="bezel">
+        <canvas id="scr" width="240" height="320"></canvas>
+        <div class="chin"><span>VIGIL · ESP32</span><span>240×320</span></div>
+      </div>
+      <div class="readout" id="ro">
+        <div id="boot">loading firmware…</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <section>
+        <h3>Go to</h3>
+        <div class="btns">
+          <button data-v="0">Home</button><button data-v="1">Radar</button>
+          <button data-v="8">Nodes</button><button data-v="2">Followers</button>
+          <button data-v="3">Decoys</button><button data-v="5">Control</button>
+          <button data-v="4">Library</button><button data-v="6">Info</button><button data-v="7">Exposure check</button>
+        </div>
+      </section>
+      <section>
+        <h3>Do something to the fleet</h3>
+        <div class="btns">
+          <button data-e="0">Node joins</button>
+          <button data-e="1">Node drops</button>
+          <button data-e="2">Node degrades</button>
+          <button data-e="3">Tracker appears</button>
+          <button data-e="4">Follower appears</button>
+          <button data-e="5" class="warn">Threat escalates</button>
+          <button data-e="6">Clear threats</button>
+          <button data-e="7">Pause decoys</button>
+          <button data-e="8">Empty the room</button>
+        </div>
+      </section>
+      <p class="note">Try <b>Threat escalates</b> a couple of times and watch the status word in the
+        top bar go to <span style="color:var(--hunter)">HUNTED</span> — that transition is the real
+        firmware's own logic, not something this page decides. <b>Empty the room</b> takes the
+        ambient crowd away, which is what <span style="color:var(--warn)">EXPOSED</span> means: the
+        decoys are running but there is nothing to blend into.</p>
+      <p class="note"><b>Exposure check</b> is the one to try if you only try one. It listens for a
+        few seconds, spots the device that suddenly starts shouting, and lists the network names it
+        is announcing it remembers. On real hardware that device is your phone and those names are
+        yours. <b>The four shown here are invented</b> — they are written in the router-default style
+        the project's own SSID pool uses, and none came from a capture.</p>
+    </div>
+  </div>
+
+  <div class="prov">
+    <h3 style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--arcane);margin:0 0 12px">What is real here</h3>
+    <table>
+      <tr><td>radar_render.c</td><td>every screen, unmodified firmware source</td></tr>
+      <tr><td>radar_gfx.c</td><td>the rasteriser — lines, text, the 8×8 font</td></tr>
+      <tr><td>radar_ui.c</td><td>view state machine, idle timers, auto-wake on a new follower</td></tr>
+      <tr><td>fleet_status.c</td><td>node aggregation, stale pruning, threat union, MIXED preset</td></tr>
+      <tr class="fake"><td>sim_fleet.c</td><td><b>the only invented part</b> — stands in for the radio</td></tr>
+    </table>
+    <p class="note">Tap targets are mapped in this page rather than shared with the firmware, because
+      the device's are bound up with radio and enrollment calls that can't run in a browser. A zone
+      being a few pixels off here is cosmetic; on the board it would matter.</p>
+  </div>
+<script src="vigil_web.js"></script>
+<script>
+(function(){
+  var W=240,H=320, cv=document.getElementById('scr'), cx=cv.getContext('2d');
+  var ro=document.getElementById('ro'), M=null, api={}, img=null, last=0;
+  var POSTURE=['CLOAKED','EXPOSED','DARK','HUNTED'];
+  // radar_view_t order, mirroring cyd_main.c's HOME grid:
+  // RADAR DETAIL / STATS CONTROL / LIBRARY INFO / EXPOSURE NODES
+  var GRID=[1,2,3,5,4,6,7,8];
+
+  function hit(x,y){
+    var v=api.view();
+    if(v===0){                                     // HOME: draw_home's 2x120 cols, 4x66 rows from y=32
+      if(y>=32&&y<296){ var i=((y-32)/66|0)*2+(x>=120?1:0); if(i<8) api.setView(GRID[i]); }
+      return;
+    }
+    if(v===8){                                     // NODES list: 24px rows from y=36
+      if(y<26){ api.back(); return; }
+      var n=((y-36)/24|0); if(n>=0&&n<api.nodes()) api.selNode(n);
+      return;
+    }
+    if(v===5){                                     // CONTROL: geometry from draw_control
+      if(y<40){ api.back(); return; }
+      if(y>=108&&y<140){ api.ctrlNext(); return; }             // the < [PRESET] > row at y=120
+      if(y>=205&&y<239&&x>=60&&x<180){ api.ctrlSend(); return; } // SEND button rect(60,205,120,34)
+      if(y>=252&&y<282&&x>=40&&x<200){ api.event(6); return; }   // CLEAR THREATS rect(40,252,160,30)
+      return;
+    }
+    if(v===6){                                     // INFO: body tap flips console <-> legend
+      if(y<26){ api.back(); return; }
+      api.infoFlip(); return;
+    }
+    if(v===7){                                     // EXPOSURE: tap restarts a finished scan
+      if(y<26){ api.back(); return; }
+      api.expoRestart(); return;
+    }
+    if(y<40) api.back();                           // every other view: top strip goes back
+  }
+
+  cv.addEventListener('click',function(e){
+    var r=cv.getBoundingClientRect();
+    hit(Math.floor((e.clientX-r.left)*W/r.width), Math.floor((e.clientY-r.top)*H/r.height));
+  });
+  document.querySelectorAll('[data-v]').forEach(function(b){
+    b.addEventListener('click',function(){ api.setView(+b.dataset.v); });
+  });
+  document.querySelectorAll('[data-e]').forEach(function(b){
+    b.addEventListener('click',function(){ api.event(+b.dataset.e); });
+  });
+
+  function frame(t){
+    var dt = last ? t-last : 16; last=t;
+    var ptr = api.tick(Math.round(dt));
+    img.data.set(M.HEAPU8.subarray(ptr, ptr+W*H*4));
+    cx.putImageData(img,0,0);
+    var p = POSTURE[api.posture()]||'?';
+    ro.innerHTML = 'posture <b class="p-'+p+'">'+p+'</b> &nbsp; nodes <b>'+api.nodes()+
+                   '</b> &nbsp; threats <b>'+api.threats()+'</b><br><span id="ev">'+
+                   (M.UTF8ToString(api.lastEvent())||'—')+'</span>';
+    requestAnimationFrame(frame);
+  }
+
+  VigilModule().then(function(mod){
+    M=mod;
+    api.tick     = mod.cwrap('wv_tick','number',['number']);
+    api.setView  = mod.cwrap('wv_set_view',null,['number']);
+    api.back     = mod.cwrap('wv_back',null,[]);
+    api.view     = mod.cwrap('wv_view','number',[]);
+    api.selNode  = mod.cwrap('wv_select_node',null,['number']);
+    api.infoFlip = mod.cwrap('wv_info_flip',null,[]);
+    api.expoRestart = mod.cwrap('wv_expo_restart',null,[]);
+    api.ctrlNext = mod.cwrap('wv_ctrl_next',null,[]);
+    api.ctrlSend = mod.cwrap('wv_ctrl_send',null,[]);
+    api.event    = mod.cwrap('wv_event',null,['number']);
+    api.nodes    = mod.cwrap('wv_node_count','number',[]);
+    api.threats  = mod.cwrap('wv_threat_count','number',[]);
+    api.posture  = mod.cwrap('wv_posture','number',[]);
+    api.lastEvent= mod.cwrap('wv_last_event','number',[]);
+    mod.cwrap('wv_init',null,['number'])(0);
+    img = cx.createImageData(W,H);
+    api.event(0); api.event(0);                    // two more nodes so it opens with a live fleet
+    requestAnimationFrame(frame);
+  }).catch(function(e){
+    document.getElementById('boot').innerHTML =
+      'The console demo could not load in this browser. The flasher on the ' +
+      '<a href="./" style="color:var(--arcane)">main page</a> is unaffected.';
+    console.error('vigil_web: wasm load failed', e);
+  });
+})();
+</script>
+
+<p class="outro">This is the screen on the <b>Vigil</b> controller board. The decoy boards have no
+  screen &mdash; this is the one you look at. If you want the real thing,
+  <a href="./">the flasher</a> will put it on a board in about a minute.</p>
+</div>
+</body>
+</html>
