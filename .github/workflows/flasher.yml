@@ -12,6 +12,19 @@ name: web-flasher
 
 on:
   workflow_dispatch:            # manual "Run workflow" button
+
+  # Validate the console demo on the PR that changes it. Only the webdemo job runs here -- the
+  # firmware matrix and the Pages deploy stay on main. Without this the wasm build's first ever
+  # execution would be a push to production, which is the one place it must not break.
+  pull_request:
+    paths:
+      - 'web/vigil.html'
+      - 'tools/radar_audit/vigil_web.c'
+      - 'tools/radar_audit/sim_fleet.c'
+      - 'tools/radar_audit/sim_fleet.h'
+      - 'tools/radar_audit/build_web.sh'
+      - '.github/workflows/flasher.yml'
+
   push:
     branches: [main]
     paths:                      # rebuild only when firmware or the page changes
@@ -21,6 +34,11 @@ on:
       - 'web/index.html'
       - 'web/manifest.json'
       - 'web/*.js'
+      - 'web/vigil.html'
+      - 'tools/radar_audit/vigil_web.c'
+      - 'tools/radar_audit/sim_fleet.c'
+      - 'tools/radar_audit/sim_fleet.h'
+      - 'tools/radar_audit/build_web.sh'
       - '.github/workflows/flasher.yml'
 
 permissions:
@@ -34,6 +52,7 @@ concurrency:                    # never race two Pages deploys
 
 jobs:
   build:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -110,8 +129,36 @@ jobs:
           path: out/${{ matrix.name }}.bin
           if-no-files-found: error
 
+  webdemo:
+    # web/vigil.html -- the Vigil console compiled to WebAssembly, so the page can be tried without
+    # buying a board. Runs in emscripten's own image rather than adding a third-party action to this
+    # workflow's trust surface. The tag floats; if a toolchain change ever breaks the build, the
+    # blast radius is this job only (see below), so pinning can wait until it actually bites.
+    #
+    # THIS JOB MUST NEVER BLOCK THE DEPLOY. `deploy` waits for it but does not require success, so a
+    # broken demo cannot take down the page people use to flash real hardware. That page is the
+    # product; this is a nice-to-have sitting next to it.
+    runs-on: ubuntu-latest
+    container: emscripten/emsdk:latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # build_web.sh owns the source list; build_web.ps1 is its Windows twin. Keep them in sync.
+      - name: Build the console demo
+        run: sh tools/radar_audit/build_web.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vigil-web
+          path: |
+            web/vigil_web.js
+            web/vigil_web.wasm
+          if-no-files-found: error
+
   deploy:
-    needs: build
+    # Waits for webdemo, but only *requires* build. If the demo failed, the flasher still ships.
+    needs: [build, webdemo]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -125,7 +172,7 @@ jobs:
       - name: Assemble the site (page + modules + manifest + firmware)
         run: |
           mkdir -p _site/firmware
-          cp web/index.html web/manifest.json web/*.js _site/
+          cp web/index.html web/vigil.html web/manifest.json web/*.js _site/
           ls -l _site
 
       - uses: actions/download-artifact@v8
@@ -138,6 +185,17 @@ jobs:
           cp dl/fw-decoy-c6/decoy-c6.bin _site/firmware/decoy-c6.bin
           cp dl/fw-cyd/cyd.bin           _site/firmware/cyd.bin
           ls -l _site/firmware
+
+      # vigil.html always ships; its wasm may not. The page reports the failure in-place rather
+      # than showing a blank screen, so a missing demo degrades instead of looking broken.
+      - name: Add the console demo, if it built
+        run: |
+          if [ -f dl/vigil-web/vigil_web.wasm ]; then
+            cp dl/vigil-web/vigil_web.js dl/vigil-web/vigil_web.wasm _site/
+            echo "console demo included"
+          else
+            echo "::warning::console demo did not build this run; deploying the flasher without it"
+          fi
 
       - uses: actions/upload-pages-artifact@v5
         with:
