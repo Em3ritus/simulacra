@@ -62,14 +62,17 @@ jobs:
             idf: v5.5
             target: esp32c5
             path: .
+            magic: SIMULACRA:CTRLPK
           - name: decoy-c6   # -> firmware/decoy-c6.bin (Shade)
             idf: v5.4
             target: esp32c6
             path: .
+            magic: SIMULACRA:CTRLPK
           - name: cyd        # -> firmware/cyd.bin (Vigil controller; separate project in cyd/)
             idf: v5.4
             target: esp32
             path: cyd
+            magic: SIMULACRA:CTRLSK
     steps:
       - uses: actions/checkout@v5
 
@@ -122,6 +125,32 @@ jobs:
           mkdir -p out
           mv ${{ matrix.path }}/${{ matrix.name }}.bin out/${{ matrix.name }}.bin
           ls -l out
+
+      # The whole point of these images is that the browser can rewrite their key block before
+      # flashing. If the block is missing the image still builds, still boots, and still looks fine
+      # here -- and then web/keypatch.js throws for every visitor, on every board, because flash.js
+      # patches all three builds before it knows which chip you have.
+      #
+      # That is exactly what shipped: CI builds the Vigil from cyd/main/sim_ctrl_sk.h.example (it
+      # cannot use the gitignored real header), and that template was left in the pre-magic format
+      # when browser keying landed. It compiled, so nothing noticed. See issue #10.
+      - name: Verify the browser-patchable key block survived into the image
+        run: |
+          python3 - <<'EOF'
+          import sys
+          magic = b"${{ matrix.magic }}"
+          blob  = open("out/${{ matrix.name }}.bin", "rb").read()
+          n = blob.count(magic)
+          print(f"${{ matrix.name }}.bin: {len(blob)} bytes, {magic.decode()} x{n}")
+          # More than one is normal and fine: the key lives in a `static const` in a header, so
+          # every translation unit that includes it gets a copy (the Vigil image carries two --
+          # cyd_main.c and fleet_db.c). keypatch.js writes the key into EVERY occurrence it finds
+          # and returns the count, so duplicates stay consistent. Zero is the failure.
+          if n < 1:
+              sys.exit(f"::error::${{ matrix.name }}.bin contains no {magic.decode()} block. "
+                       f"The web flasher cannot personalise this image, which breaks flashing "
+                       f"for everyone, on every board. See issue #10.")
+          EOF
 
       - uses: actions/upload-artifact@v7
         with:
