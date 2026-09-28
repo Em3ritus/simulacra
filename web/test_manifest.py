@@ -36,9 +36,23 @@ class Manifest(unittest.TestCase):
     def test_page_references_manifest(self):
         with open(os.path.join(HERE, "index.html")) as f:
             html = f.read()
-        self.assertIn("esp-web-tools@10", html)
         self.assertIn('prepareManifest("manifest.json"', html,
                       "the page must feed manifest.json through the key-patching step")
+
+    def test_flasher_library_is_the_vendored_build(self):
+        """The released esp-web-tools cannot identify ESP32-C5 rev v1.2, so the page must load the
+        vendored build made against esptool-js 0.7.0 (issue #13). Going back to a CDN copy, or
+        vendoring a build without the fix, silently breaks every current C5 again."""
+        with open(os.path.join(HERE, "index.html")) as f:
+            html = f.read()
+        self.assertIn('src="vendor/esp-web-tools/install-button.js"', html)
+        self.assertNotIn("unpkg.com/esp-web-tools", html, "flasher library must not come from a CDN")
+        vend = os.path.join(HERE, "vendor", "esp-web-tools")
+        self.assertTrue(os.path.exists(os.path.join(vend, "install-button.js")))
+        self.assertTrue(os.path.exists(os.path.join(vend, "LICENSE")), "Apache-2.0 needs its LICENSE")
+        bundle = "".join(open(os.path.join(vend, n), encoding="utf-8").read()
+                         for n in os.listdir(vend) if n.endswith(".js"))
+        self.assertIn("820080751", bundle, "vendored bundle lacks the C5 v1.2 chip magic 0x30e1706f")
 
     def test_install_button_has_no_static_manifest(self):
         """Fail safe. The button's only manifest is the blob the Prepare step builds, so a skipped

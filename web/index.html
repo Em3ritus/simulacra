@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simulacra - Flash</title>
-<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js"></script>
+<!-- esp-web-tools is vendored, not loaded from unpkg. Released 10.4.0 bundles esptool-js 0.6, which
+     cannot identify ESP32-C5 rev v1.2 (every current C5), so the flasher died at "Failed to
+     initialize" (issue #13). vendor/esp-web-tools/rebuild.sh rebuilds it against esptool-js 0.7.0.
+     Serving our own copy also means an upstream release cannot change the flasher under us. -->
+<script type="module" src="vendor/esp-web-tools/install-button.js"></script>
 <!-- Ed25519 keygen. TweetNaCl rather than WebCrypto because WebCrypto's Ed25519 support is uneven,
      and because the firmware's 64-byte secret is literally TweetNaCl's seed||pub layout, so there
      is no format conversion to get wrong. Pinned, with SRI: this script generates the key that

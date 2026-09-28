@@ -34,6 +34,7 @@ on:
       - 'web/index.html'
       - 'web/manifest.json'
       - 'web/*.js'
+      - 'web/vendor/**'
       - 'web/vigil.html'
       - 'tools/radar_audit/vigil_web.c'
       - 'tools/radar_audit/sim_fleet.c'
@@ -202,6 +203,9 @@ jobs:
         run: |
           mkdir -p _site/firmware
           cp web/index.html web/vigil.html web/manifest.json web/*.js _site/
+          # The flasher library is vendored (web/vendor/esp-web-tools, see its rebuild.sh); the page
+          # loads it by relative path, so without this copy Connect & Flash is a dead button.
+          cp -r web/vendor _site/
           ls -l _site
 
       - uses: actions/download-artifact@v8
