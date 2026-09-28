@@ -89,6 +89,18 @@ seed or the 64-byte `seed||pub` secret you get from reading the block off a boar
   than flashing a published key, so a firmware built from a tree without `sim_ctrl_key.h` /
   `sim_ctrl_sk.h` in block form will be rejected at the Prepare step.
 
+## The flasher library is vendored (maintainer)
+
+`web/vendor/esp-web-tools/` is esp-web-tools 10.4.0 rebuilt against esptool-js 0.7.0, served from
+this site instead of a CDN. The released 10.4.0 bundles esptool-js 0.6, which cannot identify
+ESP32-C5 revision v1.2 (chip magic `0x30e1706f`), and every C5 sold today is that revision. On one
+of those the flasher failed at "Failed to initialize" before reaching any of our code (issue #13,
+upstream espressif/esptool-js#262).
+
+`sh web/vendor/esp-web-tools/rebuild.sh` reproduces the bundle; the esptool-js pin is the only change
+from upstream. `test_manifest.py` fails if the page goes back to a CDN copy or the bundle loses the
+fix. Once an esp-web-tools release ships esptool-js 0.7.0 or later, this can go back to a release.
+
 ## How the patching works (maintainer)
 
 `web/keypatch.js` rewrites the key and repairs the image. `tools/patch_keyblock.py` is the reference
