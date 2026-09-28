@@ -150,6 +150,16 @@ int espnow_open_any(const uint8_t *frame, size_t flen, uint8_t *out_type, uint8_
 static uint8_t s_enr_nonce_d[24];   // our per-session nonce (bound into the GRANT)
 static uint8_t s_enr_veph[32];      // Vigil ephemeral pubkey from the OFFER we answered
 static bool    s_enr_pending;
+// The OFFER we answered and the REQUEST we answered it with. The Vigil re-sends the SAME signed
+// OFFER once a second for its whole window, and each resend used to start a new session: a fresh
+// nonce_d plus a full Ed25519 verify and crypto_box. That cost ~2 s per OFFER on a 160 MHz C6, so
+// the RX ring backed up with resends, every GRANT sat behind a newer OFFER that had already re-rolled
+// nonce_d, and the GRANT was then rejected as "not our session". The C6 could never enroll, and the
+// backlog starved IDLE into the task watchdog. A byte-identical resend now replays the REQUEST
+// already built: same session, no crypto, so whichever GRANT comes back matches.
+static uint8_t s_enr_offer[ENROLL_OFFER_LEN];
+static uint8_t s_enr_offer_nv[24];
+static uint8_t s_enr_req[1 + ENROLL_REQUEST_LEN];
 
 // An un-enrolled decoy answers ANY signature-valid OFFER, unconditionally, forever -- that's the
 // whole point while it's actively seeking enrollment (the Vigil re-broadcasts the SAME OFFER, same
@@ -184,6 +194,15 @@ static void enroll_on_frame(const uint8_t *data, int len)
 {
     if (data[0] == RADAR_TYPE_ENROLL_OFFER) {
         if (len != 1 + ENROLL_OFFER_LEN) return;
+        if (memcmp(data + 1, s_enr_offer, ENROLL_OFFER_LEN) == 0) {
+            // Resend of the OFFER already verified and answered. Once its GRANT has landed there is
+            // nothing left to do; until then, replay our REQUEST under the same replay bound.
+            if (!s_enr_pending) return;
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            if (!enr_nonce_answerable(s_enr_offer_nv, now_ms)) return;
+            esp_now_send(BCAST, s_enr_req, sizeof s_enr_req);
+            return;
+        }
         uint8_t veph[32], nv[24]; uint32_t epoch;
         if (enroll_offer_open(data + 1, ENROLL_OFFER_LEN, SIMULACRA_CTRL_PK, veph, nv, &epoch) != 0)
             return;                                          // not a genuine Vigil offer
@@ -195,11 +214,12 @@ static void enroll_on_frame(const uint8_t *data, int len)
         esp_fill_random(s_enr_nonce_d, 24);                  // fresh session
         memcpy(s_enr_veph, veph, 32);
         uint8_t idsk[32]; fleet_id_sk(idsk);
-        uint8_t frame[1 + ENROLL_REQUEST_LEN];
-        frame[0] = RADAR_TYPE_ENROLL_REQUEST;
-        if (enroll_request_build(frame + 1, ENROLL_REQUEST_LEN, fleet_id_pk(), idsk,
+        s_enr_req[0] = RADAR_TYPE_ENROLL_REQUEST;
+        if (enroll_request_build(s_enr_req + 1, ENROLL_REQUEST_LEN, fleet_id_pk(), idsk,
                                  s_enr_nonce_d, veph, nv) != ENROLL_REQUEST_LEN) return;
-        esp_now_send(BCAST, frame, sizeof frame);
+        esp_now_send(BCAST, s_enr_req, sizeof s_enr_req);
+        memcpy(s_enr_offer, data + 1, ENROLL_OFFER_LEN);
+        memcpy(s_enr_offer_nv, nv, 24);
         s_enr_pending = true;
         ESP_LOGW(ETAG, "enroll: answered OFFER (epoch %u) -> sent REQUEST", (unsigned)epoch);
         return;
@@ -210,7 +230,10 @@ static void enroll_on_frame(const uint8_t *data, int len)
         uint8_t key[32], nd_echo[24]; uint32_t epoch;
         if (enroll_grant_open(data + 1, ENROLL_GRANT_LEN, s_enr_veph, idsk, key, &epoch, nd_echo) != 0)
             return;
-        if (memcmp(nd_echo, s_enr_nonce_d, 24) != 0) return; // not our session (replay/stale)
+        if (memcmp(nd_echo, s_enr_nonce_d, 24) != 0) {       // not our session (replay/stale)
+            ESP_LOGW(ETAG, "enroll: GRANT for another session ignored");
+            return;
+        }
         fleet_key_set(key, epoch);
         s_enr_pending = false;
         ESP_LOGW(ETAG, "enroll: GRANT accepted -> fleet key set (epoch %u)", (unsigned)epoch);
