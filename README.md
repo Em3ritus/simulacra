@@ -123,8 +123,8 @@ the lower-power/everyday-carry variant.
 
 - Rotating BLE decoy crowd with realistic random-static MACs, vendor/format shapes, and advertising
   cadence, on a **death/rebirth lifecycle** so the population turns over like a real crowd instead of
-  a fixed set of decoys. Every identifier is capped at **15 minutes on air** (`ADDR_MAX_ONAIR_MS`),
-  matching real-phone RPA rotation: RPAs/NRPAs rotate on realistic schedules, and static addresses
+  a fixed set of decoys. Every identifier is capped at **15 minutes on air** (`ADDR_MAX_ONAIR_MS`)
+  while the crowd is running (PAUSE, below, suspends that for BLE), matching real-phone RPA rotation: RPAs/NRPAs rotate on realistic schedules, and static addresses
   honour the same ceiling by dying and being reborn as wholly new devices rather than rotating - an
   address whose top two bits declare "I am static" must not rotate, or it contradicts itself on air.
 - **Wi-Fi PAN cover:** independent probe-request agents built from **capture-derived IE structures**.
@@ -154,6 +154,10 @@ the lower-power/everyday-carry variant.
   history from the panel. **TURBO** is a field-use flood mode, not a realism mode: every board
   independently maxes its own BLE and Wi-Fi churn - no room-density matching - to raise the
   processing cost of whoever's watching. Manual-only, two-tap confirm, sticky until changed.
+  **PAUSE** freezes the BLE crowd exactly as it stands: those decoys stay on air with the same
+  addresses and stop turning over, so the 15-minute ceiling no longer applies to them until you
+  resume (Wi-Fi probe agents keep rotating). The console reads `DARK` while paused, even though the
+  frozen BLE crowd is still transmitting.
 - **Boards are additive.** Each decoy sizes its own crowd independently, so adding a board adds
   cover rather than redistributing it, while AUTO's density matching keeps the *fleet* honest in a
   sparse room. Every board also carries its own set of hardware advertising slots, which is the real
@@ -391,9 +395,12 @@ Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking m
 - **Decoys never emit a tracker signature.** Three paths could make a decoy match this project's own
   tracker detector, meaning nearby phones would warn their owners that an unknown tracker was
   travelling with them. All closed, behind a fail-closed gate.
-- **The ESP-NOW link went quiet.** Measured from outside, ~99 vendor action frames/min against an
-  ambient median of zero, most of it the Vigil rebroadcasting its whole library every 20 s.
-  Now delta-based and jittered: **66.9/min -> 4.2/min**.
+- **The ESP-NOW link went quiet.** A Kismet capture counted the five-board fleet at ~99 vendor action
+  frames/min, against an ambient median of zero. A second sniffer, parked on channel 1 and counting
+  by decoded frame type, found the bulk was the Vigil rebroadcasting its whole library every 20 s.
+  Now delta-based and jittered: **66.9/min -> 4.2/min** on that channel-1 sniffer. It undercounts
+  the decoys, which hop channels, so the decoy share is a lower bound, and the fleet-wide figure has
+  not been re-measured since.
 - **Project wiki.** A full [CYD console guide + reference](https://github.com/Em3ritus/simulacra/wiki)
   (every screen, setting, preset, and status word explained) and a project-wide glossary, published
   and linked from the README.

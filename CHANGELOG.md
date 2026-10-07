@@ -77,11 +77,14 @@ own "Recent updates" section keeps only the latest few entries - this is the ful
   classifies the fleet regardless of how well the source MAC is randomised. Replaced with real
   captured structures (8 of 8 now match, covering 52.2% of that crowd), including two 2.4-GHz-only
   archetypes, because devices without a 5 GHz radio exist and an invented table has none.
-- **ESP-NOW link went quiet.** Measured from outside, the fleet emitted ~99 vendor action frames/min
-  where 203 of 206 ambient devices emit exactly zero. The Vigil, not the decoys, was the loudest
+- **ESP-NOW link went quiet.** A 2026-08-25 Kismet capture counted the five-board fleet at ~99 vendor
+  action frames/min where 203 of 206 ambient devices emit exactly zero. The Vigil, not the decoys, was the loudest
   thing in the system: it rebroadcast its entire learned library every 20 s on a fixed period. Now a
   delta sync on a jittered cadence, with `FLEET_MACS` also delta-based and its chunks paced.
-  Measured **66.9/min -> 4.2/min** total; library sync **65.9 -> 2.4**.
+  Re-measured with a board parked on channel 1, counting by decoded type: **66.9/min -> 4.2/min**
+  total; library sync **65.9 -> 2.4**. The two figures are different instruments, not a before and
+  after: the channel-1 sniffer undercounts the channel-hopping decoys (the Vigil does not hop), and
+  the fleet-wide Kismet number has not been re-taken since the fix.
 - **Replay-driven presence oracle closed.** Capturing a sealed frame needs no key, and the replay
   window reset on any salt change - so alternating captures from two sender boots made every decoy
   in range answer with a STATUS. Telemetry replay state is now a high-water counter per salt, so an
