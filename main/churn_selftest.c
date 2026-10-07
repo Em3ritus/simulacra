@@ -68,6 +68,9 @@ static const identity_t *s_rec[CHURN_HW_INSTANCES];
 static int s_apply_calls;
 static int rec_apply(uint8_t instance, const identity_t *id)
 { if (instance < CHURN_HW_INSTANCES) s_rec[instance] = id; s_apply_calls++; return 0; }
+static int s_stop_mask, s_stop_calls;
+static int rec_stop(uint8_t instance)
+{ if (instance < CHURN_HW_INSTANCES) s_stop_mask |= 1 << instance; s_stop_calls++; return 0; }
 
 // Fixed population for the churn self-tests: > CHURN_HW_INSTANCES so time-slicing engages.
 #define CHURN_ST_N 8
@@ -1048,27 +1051,49 @@ static void test_churn_pause(void)
     roster_init();
     ble_devices_init(CHURN_ST_N, 0);
     memset(s_rec, 0, sizeof(s_rec));
-    s_apply_calls = 0;
+    s_apply_calls = 0; s_stop_mask = 0; s_stop_calls = 0;
     churn_set_apply(rec_apply);
+    churn_set_stop(rec_stop);
     churn_set_paused(false);
     churn_init(0);
 
     // First slice always applies (fills the instances from the initial -1 occupancy).
     churn_tick(CHURN_SLICE_MS);
     ST_CHECK(s_apply_calls > 0, "initial tick applies the first occupant set");
+    ST_CHECK(s_stop_calls == 0, "running churn never stops an instance");
 
-    // Pause: further ticks -- even across many would-be slice boundaries -- must not apply.
+    // Pause is SILENT: the first paused tick takes every instance off the air, exactly once, and
+    // no further tick -- across many would-be slice boundaries -- applies anything.
     churn_set_paused(true);
     ST_CHECK(churn_paused(), "pause flag reads back true");
     int calls_before = s_apply_calls;
-    for (uint32_t t = 2 * CHURN_SLICE_MS; t <= 10 * CHURN_SLICE_MS; t += CHURN_SLICE_MS)
+    uint32_t gen_before = churn_apply_gen();
+    churn_tick(2 * CHURN_SLICE_MS);
+    ST_CHECK(s_stop_mask == (1 << CHURN_HW_INSTANCES) - 1, "pause stops every advertising instance");
+    ST_CHECK(churn_apply_gen() != gen_before, "pause bumps apply_gen (on-air set emptied)");
+    int stops = s_stop_calls;
+    for (uint32_t t = 3 * CHURN_SLICE_MS; t <= 10 * CHURN_SLICE_MS; t += CHURN_SLICE_MS)
         churn_tick(t);
     ST_CHECK(s_apply_calls == calls_before, "paused churn issues no apply calls");
+    ST_CHECK(s_stop_calls == stops, "instances are stopped once per pause, not every tick");
 
-    // Resume: the next slice boundary re-applies (time-slice advances the occupant set).
+    // Time keeps moving while paused: a pause longer than the on-air ceiling must not hand back
+    // the same addresses that were advertising before it.
+    uint8_t before[CHURN_ST_N][6]; int nb = ble_devices_count();
+    for (int i = 0; i < nb && i < CHURN_ST_N; i++) memcpy(before[i], ble_devices_at(i)->id.addr, 6);
+    uint32_t t_resume = 10 * CHURN_SLICE_MS + ADDR_MAX_ONAIR_MS + 1000;
+    for (uint32_t t = 11 * CHURN_SLICE_MS; t < t_resume; t += 60000) churn_tick(t);
+    int same = 0;
+    for (int i = 0; i < nb && i < CHURN_ST_N && i < ble_devices_count(); i++)
+        if (!memcmp(before[i], ble_devices_at(i)->id.addr, 6)) same++;
+    ST_CHECK(same == 0, "no address survives a pause longer than ADDR_MAX_ONAIR_MS");
+
+    // Resume: the next slice re-applies every instance (occupancy was forgotten on pause).
     churn_set_paused(false);
-    churn_tick(11 * CHURN_SLICE_MS);
-    ST_CHECK(s_apply_calls > calls_before, "resumed churn applies again");
+    churn_tick(t_resume);
+    ST_CHECK(s_apply_calls - calls_before >= CHURN_HW_INSTANCES || s_apply_calls - calls_before >= nb,
+             "resumed churn re-applies every slot");
+    churn_set_stop(NULL);
 }
 
 static void test_detect_clear(void)

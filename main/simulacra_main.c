@@ -176,6 +176,7 @@ static void simulacra_task(void *arg)
     if (nph < 1) nph = 1;
     phantom_init(nph, (uint32_t)(esp_timer_get_time() / 1000));
     churn_set_apply(churn_adv_apply);
+    churn_set_stop(churn_adv_stop);
     churn_init((uint32_t)(esp_timer_get_time() / 1000));
     sim_settings_init();   // restore persisted churn tunables (or firmware defaults)
     detect_reset();

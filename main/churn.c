@@ -11,12 +11,15 @@ static uint8_t  s_occ_addr[CHURN_HW_INSTANCES][6];
 static uint32_t s_phase;
 static uint32_t s_last_slice_ms;
 static churn_apply_fn s_apply;
-static bool     s_paused;                            // webui: pause the churn rotation
+static churn_stop_fn  s_stop;
+static bool     s_paused;                            // PAUSE: decoy BLE off the air
+static bool     s_silenced;                          // instances already stopped for this pause
 static uint32_t s_now_ms;                            // last tick's clock; time source for the setters
 static uint32_t s_apply_gen;                         // bumped whenever the on-air set changes
 static uint32_t s_slice_ms = CHURN_SLICE_MS;          // presentation cadence; churn_set_slice_ms overrides
 
 void    churn_set_apply(churn_apply_fn fn) { s_apply = fn; }
+void    churn_set_stop(churn_stop_fn fn) { s_stop = fn; }
 void    churn_set_paused(bool paused) { s_paused = paused; }
 bool    churn_paused(void) { return s_paused; }
 uint32_t churn_apply_gen(void) { return s_apply_gen; }
@@ -30,11 +33,27 @@ void churn_init(uint32_t now_ms)
 
 void churn_tick(uint32_t now_ms)
 {
-    s_now_ms = now_ms;                             // before the pause gate: the setters need a
-    if (s_paused) return;                          // current clock even while rotation is frozen
+    s_now_ms = now_ms;
+    // The crowd keeps living while paused: births, deaths and RPA rotation all run on schedule, so
+    // an identity still dies inside ADDR_MAX_ONAIR_MS of its birth even if a pause spans its life.
+    // Pausing used to return before this point, which froze the crowd ON AIR - the same addresses
+    // advertised indefinitely, the one long-lived identifier the ceiling exists to prevent.
     phantom_lifecycle(now_ms);      // advance persona births/deaths (single source of truth)
     phantom_sync_ble(now_ms);       // bound BLE slots co-appear/co-leave with their persona
     ble_devices_tick(now_ms);       // advance the unbound crowd (bound slots are skipped)
+    if (s_paused) {
+        if (!s_silenced) {          // once per pause: every instance off the air
+            for (int i = 0; i < CHURN_HW_INSTANCES; i++) {
+                if (s_stop) s_stop((uint8_t)i);
+                s_occ_idx[i] = -1;  // forget the occupant so resume re-applies every slot
+                memset(s_occ_addr[i], 0, 6);
+            }
+            s_apply_gen++;          // the on-air set is now empty
+            s_silenced = true;
+        }
+        return;
+    }
+    s_silenced = false;
     if (now_ms - s_last_slice_ms < s_slice_ms) return;
     s_last_slice_ms = now_ms; s_phase++;
 

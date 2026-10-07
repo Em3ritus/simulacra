@@ -441,7 +441,10 @@ static void coexist_task(void *arg)
                                                   // holds ONE Wi-Fi MAC for its whole life while its
                                                   // BLE RPA rotates - the mismatch is the tell.
                                                   // probe_agents_lifecycle is standalone-only.
-            if (n24) {
+            // PAUSE is silent on Wi-Fi too: agents, personas and MAC rotation above keep their
+            // schedule, but no probe request leaves the board until resume.
+            const bool silent = churn_paused();
+            if (n24 && !silent) {
                 // Shuffled sweep, not a fixed 1->6->11->1 cycle. Every channel is still visited
                 // once per pass (a real scanner covers the band), but the ORDER is re-randomized
                 // each pass, so the joint (period, channel) pattern stops being predictable.
@@ -458,7 +461,7 @@ static void coexist_task(void *arg)
                 probe_inject_burst(ch24[order[ord_i++]]);       // 2.4 GHz (coex-arbitrated)
             }
             // Jittered 5 GHz excursion: a fixed every-Nth-burst cadence is itself a pattern.
-            if (p->use_5g && (++s_wifi_ctr % COEX_5G_EVERY == 0)) {
+            if (!silent && p->use_5g && (++s_wifi_ctr % COEX_5G_EVERY == 0)) {
                 coexist_5g_excursion();
                 s_wifi_ctr += esp_random() % COEX_5G_EVERY;     // shift the next excursion's phase
             }
