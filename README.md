@@ -31,7 +31,7 @@ over an encrypted ESP-NOW link.
 > **[em3ritus.github.io/simulacra](https://em3ritus.github.io/simulacra/)** (desktop Chrome/Edge).
 
 **Jump to:** [Legal](#️-legal--responsible-use) · [How it works](#how-it-works) ·
-[Architecture](#architecture--the-nodes) · [Features](#features) ·
+[What it doesn't do](#what-it-doesnt-do) · [Architecture](#architecture---the-nodes) · [Features](#features) ·
 [Security model](#security-model) · [Hardware](#hardware) · [Build & flash](#build--flash) ·
 [Repo layout](#repository-layout) · [Offline tools](#offline--bench-tools) ·
 [Recent updates](#recent-updates) · [Contributing](#contributing) · [Credits](#credits) ·
@@ -66,7 +66,8 @@ raise the volume of traffic someone has to process. The same rules above apply t
   (e.g. Apple continuity / Fast Pair pairing beacons).
 - **Passive detection.** While it churns, it watches for followers - fixed-address devices that keep
   turning up with you in different places - and matches adverts against a signature database of
-  known trackers (AirTag / SmartTag / Tile) and surveillance gear.
+  known trackers (AirTag / SmartTag / Tile) and surveillance gear (Flock ALPR cameras, Axon body
+  cameras).
 - **Coordinated, not cloned.** Nodes share a learned library and exclude each other from their own
   models over an authenticated ESP-NOW link, so the fleet behaves like one diverse crowd rather
   than several identical decoys.
@@ -93,11 +94,11 @@ stating plainly.
   fixed address that's seen with you in three different places. A board only counts a new place
   when the radio environment around it changes substantially, which in practice means you moved. A
   board left on one desk stays in one place forever, so its follower list stays empty however busy
-  the room is. Phones don't count either: they rotate their Bluetooth address roughly every 15 minutes, so
-  each one looks like a series of different devices. Rotating commercial trackers (AirTag /
-  SmartTag / Tile) also slip past the follower check and are caught only by signature matching. An
-  empty list on a board that hasn't moved doesn't mean detection is broken. To exercise it, carry
-  the board through a few places over a few days.
+  the room is. Phones don't count either: they rotate their Bluetooth address roughly every 15
+  minutes, so each one looks like a series of different devices. Rotating commercial trackers
+  (AirTag / SmartTag / Tile) also slip past the follower check and are caught only by signature
+  matching. An empty list on a board that hasn't moved doesn't mean detection is broken. To exercise
+  it, carry the board through a few places over a few days.
 - **One Vigil per fleet, for now.** Authorisation is key-based rather than identity-based, so any
   Vigil holding the control key is already authorised. What blocks it is the per-decoy replay floor:
   it's a single salt-independent counter, and two Vigils spending their own counter blocks would
@@ -355,6 +356,14 @@ Each tool has its own README with build and run steps.
 Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking milestones live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **Flashing and pairing fixed for the boards people actually have.** Every ESP32-C5 sold today is
+  revision v1.2, which the flasher's upstream serial library could not identify, so it stopped at
+  "Failed to initialize" before writing a byte; the flasher now serves its own ESP Web Tools build
+  on esptool-js 0.7.0, which can. C6 decoys could never finish pairing: each once-a-second resend
+  of the Vigil's offer started a fresh session, and the slower C6 fell further behind with every one
+  until the Vigil's answer never matched. And a template mismatch in CI left the published Vigil
+  image without its key block, which stopped the flasher for every chip. All three verified on
+  hardware.
 - **The web flasher makes a fleet nobody else can read.** A published binary cannot hold a secret,
   so a key baked into a downloadable image protects nothing. The fleet's Ed25519 keypair is now
   generated **in your browser** and written into the images before flashing; the Vigil then mints a
@@ -373,11 +382,12 @@ Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking m
   phone RPA rotation, and static devices honour it by dying and being reborn as wholly new devices.
   Wi-Fi saved-network sets are redrawn on every MAC rotation too - a set that outlives a rotation is
   the standard way MAC randomisation gets defeated in the field.
-- **AD structure and Wi-Fi probe shape are learned, not hardcoded.** Both were fitted to single
-  captures and did not survive a change of environment; a census of 877 real probing devices found
-  none of the shipped Wi-Fi IE layouts present even once. Structure now tracks the room the way
-  intervals and vendor mix already did. Cross-validated AD-structure separability
-  **[0.153-0.925] -> [0.088-0.381]**.
+- **BLE AD structure is learned, and Wi-Fi probe shapes come from real captures.** AD structure had
+  been fitted to a single capture and did not survive a change of environment; it now tracks the room
+  the way intervals and vendor mix already did. Cross-validated AD-structure separability
+  **[0.153-0.925] -> [0.088-0.381]**. The Wi-Fi IE layouts had been modelled from documentation, and
+  a census of 877 real probing devices found none of them present even once; they were rebuilt from
+  captured structures, all of which now occur in that crowd.
 - **Decoys never emit a tracker signature.** Three paths could make a decoy match this project's own
   tracker detector, meaning nearby phones would warn their owners that an unknown tracker was
   travelling with them. All closed, behind a fail-closed gate.

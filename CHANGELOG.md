@@ -3,6 +3,20 @@
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md). The README's
 own "Recent updates" section keeps only the latest few entries - this is the full history.
 
+- **Follower detection's limits are documented.** A board left at a workplace all day showed no
+  followers (#13), which is by design but was not written down: a follower needs presence in three
+  distinct location-epochs, an epoch only advances on substantial RF drift (in practice, when you
+  move), and phones rotate their BLE address. The README's "What it doesn't do" now says so.
+- **Flashing and pairing fixed for the boards people actually have.** Every ESP32-C5 sold today is
+  revision v1.2 (chip magic `0x30e1706f`), which esptool-js 0.6 inside the released ESP Web Tools
+  could not identify, so the flasher stopped at "Failed to initialize" (espressif/esptool-js#262).
+  The flasher now serves its own ESP Web Tools 10.4.0 build on esptool-js 0.7.0 (#14). C6 decoys
+  could never enroll: the Vigil re-sends its signed OFFER once a second, each resend started a fresh
+  session with a full Ed25519 verify, and at 160 MHz the C6 fell behind until every GRANT answered a
+  nonce it had already discarded, dropped without a log line. A byte-identical resend now replays
+  the cached REQUEST (#15). And CI builds the published Vigil from a committed template that never
+  gained the magic-prefixed key block, so the browser patcher refused it and the flasher failed for
+  every chip (#12). All verified on hardware.
 - **The web flasher can finally make a fleet nobody else can read.** It could not before, because
   anything compiled into a published binary is public: the images are downloadable, so a key baked
   into one is a key everybody has, and regenerating it per release just ships a new secret in the
