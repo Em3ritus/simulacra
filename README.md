@@ -64,9 +64,9 @@ raise the volume of traffic someone has to process. The same rules above apply t
   strips all identifying content. A learned template is "a device *of this kind*", never "*this
   device*". A hard "Law-3" gate refuses to ever learn or emit forbidden identity subtypes
   (e.g. Apple continuity / Fast Pair pairing beacons).
-- **Passive detection.** While it churns, it watches for followers - devices that persist with you
-  - and matches adverts against a signature database of known trackers (AirTag / SmartTag / Tile)
-  and surveillance gear.
+- **Passive detection.** While it churns, it watches for followers - fixed-address devices that keep
+  turning up with you in different places - and matches adverts against a signature database of
+  known trackers (AirTag / SmartTag / Tile) and surveillance gear.
 - **Coordinated, not cloned.** Nodes share a learned library and exclude each other from their own
   models over an authenticated ESP-NOW link, so the fleet behaves like one diverse crowd rather
   than several identical decoys.
@@ -89,6 +89,15 @@ stating plainly.
   cost of the 15-minute ceiling. Closing it by re-adding long-lived identities is the one fix that
   must not be applied, and `tools/decoy_audit/tests/test_addr_onair_cap.py` exists to fail if someone
   tries.
+- **Follower detection needs you to move, and it ignores phones.** A follower is a device with a
+  fixed address that's seen with you in three different places. A board only counts a new place
+  when the radio environment around it changes substantially, which in practice means you moved. A
+  board left on one desk stays in one place forever, so its follower list stays empty however busy
+  the room is. Phones don't count either: they rotate their Bluetooth address roughly every 15 minutes, so
+  each one looks like a series of different devices. Rotating commercial trackers (AirTag /
+  SmartTag / Tile) also slip past the follower check and are caught only by signature matching. An
+  empty list on a board that hasn't moved doesn't mean detection is broken. To exercise it, carry
+  the board through a few places over a few days.
 - **One Vigil per fleet, for now.** Authorisation is key-based rather than identity-based, so any
   Vigil holding the control key is already authorised. What blocks it is the per-decoy replay floor:
   it's a single salt-independent counter, and two Vigils spending their own counter blocks would
