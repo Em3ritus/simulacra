@@ -3,6 +3,7 @@
 #include "probe.h"
 #include "phantom.h"
 #include "ble_devices.h"
+#include "churn.h"        // churn_paused(): PAUSE silences probes too
 #include "esp_random.h"
 
 #include "esp_log.h"
@@ -159,6 +160,7 @@ static void probe_task(void *arg)
     (void)arg;
     for (;;) {
         probe_agents_lifecycle((uint32_t)(esp_timer_get_time() / 1000));  // standalone turnover
+        if (churn_paused()) { vTaskDelay(pdMS_TO_TICKS(PROBE_BURST_MS)); continue; }   // PAUSE: silent
 #if PROBE_FIX_CH
         probe_inject_burst(PROBE_FIX_CH);   // gate mode: single channel so the sniffer hears every frame
 #else

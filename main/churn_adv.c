@@ -19,6 +19,11 @@ static const char *TAG = "churn_adv";
 // bytes via this raw command, before enabling.
 int ble_hs_hci_cmd_tx(uint16_t opcode, const void *cmd, uint8_t cmd_len, void *rsp, uint8_t rsp_len);
 
+int churn_adv_stop(uint8_t instance)
+{
+    return ble_gap_ext_adv_stop(instance);   // BLE_HS_EALREADY if not running: harmless
+}
+
 int churn_adv_apply(uint8_t instance, const identity_t *id)
 {
     int rc;

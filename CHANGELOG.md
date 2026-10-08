@@ -3,6 +3,15 @@
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md). The README's
 own "Recent updates" section keeps only the latest few entries - this is the full history.
 
+- **PAUSE is silent.** It used to freeze the BLE crowd *on air*: `churn_tick` returned before the
+  lifecycle ran, so the same four addresses kept advertising for as long as the fleet stayed paused -
+  the one long-lived identifier the 15-minute ceiling exists to prevent - while the console reported
+  `DARK`. PAUSE now stops every BLE advertising slot and every Wi-Fi probe burst. Lifetimes and
+  rotation keep running underneath, so no identity survives a pause longer than its own life and
+  resume re-applies a current crowd. The ESP-NOW control link deliberately stays up: without it a
+  paused fleet could not be resumed from the Vigil. Verified by self-test and a host harness over the
+  real `churn.c`/`ble_devices.c` (every address turned over across a 15-minute pause); not yet
+  verified on hardware.
 - **Follower detection's limits are documented.** A board left at a workplace all day showed no
   followers (#13), which is by design but was not written down: a follower needs presence in three
   distinct location-epochs, an epoch only advances on substantial RF drift (in practice, when you

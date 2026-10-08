@@ -78,7 +78,7 @@ int sim_settings_resolve(sim_preset_t p, uint8_t floor, uint8_t ceiling, sim_set
     // AUTO/PAUSE record the floor rather than the ceiling: sim_settings_apply does not push a
     // target in auto_scale mode (the re-profile owns it), so this value is only ever a recorded
     // lower bound. Recording the ceiling here made a stale read look like "run at maximum".
-    case SIM_PRESET_PAUSE:                                  // AUTO values, rotation frozen
+    case SIM_PRESET_PAUSE:                                  // AUTO values, decoys silent
         s.auto_scale = true; s.paused = true; s.active_target = floor; eff_floor = floor; break;
     case SIM_PRESET_AUTO:
         s.auto_scale = true; s.active_target = floor; eff_floor = floor; break;

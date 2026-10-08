@@ -48,7 +48,7 @@ typedef enum {
 // a field the engine ignores would make the display lie about what the firmware is doing.
 typedef struct {
     uint8_t  active_target;                       // concurrent phantom crowd size
-    bool     paused;                              // freeze rotation (phantoms stay on-air)
+    bool     paused;                              // all decoy BLE + Wi-Fi TX off (see churn.h)
     float    accel;                               // lifetime divisor: >1.0 = faster arrivals/departures
     bool     turbo;                                // TURBO active: coexist_set_turbo owns the REAL
                                                    // population/churn rate, bypassing floor/ceiling

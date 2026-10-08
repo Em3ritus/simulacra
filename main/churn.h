@@ -16,15 +16,22 @@
 // (the adapter's rc) is ignored by the engine. Matches churn_adv_apply's int
 // signature so the production adapter can be registered directly.
 typedef int (*churn_apply_fn)(uint8_t instance, const identity_t *id);
+// stop(instance): take hardware `instance` off the air. PAUSE calls it for every instance, from
+// inside churn_tick, so all radio calls stay on the task that owns the advertising slots.
+typedef int (*churn_stop_fn)(uint8_t instance);
 
 void   churn_set_apply(churn_apply_fn fn);
+void   churn_set_stop(churn_stop_fn fn);
 // Population-match knob (M6): resize the live crowd to n (1..CHURN_ACTIVE_SET). Since Milestone A
 // the population lives in ble_devices, so this forwards to ble_devices_set_count using the clock
 // recorded by the last churn_tick. Safe to call at runtime, not just before churn_init.
 void   churn_set_active_target(uint8_t n);
 // Runtime read-back of the active target (population-match knob).
 uint8_t churn_active_target(void);
-// webui: pause/resume the churn rotation (BLE keeps its last advertised state).
+// Pause/resume (PAUSE preset, webui toggle). Paused means SILENT: the next churn_tick stops every
+// advertising instance and nothing is re-applied until resume. Lifetimes and rotation keep running
+// underneath, so no identity outlives ADDR_MAX_ONAIR_MS across a pause and the crowd that returns
+// is the one that would have been on air anyway.
 void   churn_set_paused(bool paused);
 bool   churn_paused(void);
 // Monotonic counter bumped every time a device is (re)applied to a hardware advertising slot, i.e.

@@ -123,8 +123,8 @@ the lower-power/everyday-carry variant.
 
 - Rotating BLE decoy crowd with realistic random-static MACs, vendor/format shapes, and advertising
   cadence, on a **death/rebirth lifecycle** so the population turns over like a real crowd instead of
-  a fixed set of decoys. Every identifier is capped at **15 minutes on air** (`ADDR_MAX_ONAIR_MS`)
-  while the crowd is running (PAUSE, below, suspends that for BLE), matching real-phone RPA rotation: RPAs/NRPAs rotate on realistic schedules, and static addresses
+  a fixed set of decoys. Every identifier is capped at **15 minutes on air** (`ADDR_MAX_ONAIR_MS`),
+  matching real-phone RPA rotation: RPAs/NRPAs rotate on realistic schedules, and static addresses
   honour the same ceiling by dying and being reborn as wholly new devices rather than rotating - an
   address whose top two bits declare "I am static" must not rotate, or it contradicts itself on air.
 - **Wi-Fi PAN cover:** independent probe-request agents built from **capture-derived IE structures**.
@@ -154,10 +154,11 @@ the lower-power/everyday-carry variant.
   history from the panel. **TURBO** is a field-use flood mode, not a realism mode: every board
   independently maxes its own BLE and Wi-Fi churn - no room-density matching - to raise the
   processing cost of whoever's watching. Manual-only, two-tap confirm, sticky until changed.
-  **PAUSE** freezes the BLE crowd exactly as it stands: those decoys stay on air with the same
-  addresses and stop turning over, so the 15-minute ceiling no longer applies to them until you
-  resume (Wi-Fi probe agents keep rotating). The console reads `DARK` while paused, even though the
-  frozen BLE crowd is still transmitting.
+  **PAUSE** takes the decoys off the air: every BLE advertising slot stops and no Wi-Fi probe
+  request is sent, and the console reads `DARK`. The crowd keeps aging underneath, so identities
+  still die on schedule and resuming brings back the crowd that would have been on air anyway, never
+  an address held across the pause. The ESP-NOW control link stays up, so the Vigil can still see
+  the node and resume it.
 - **Boards are additive.** Each decoy sizes its own crowd independently, so adding a board adds
   cover rather than redistributing it, while AUTO's density matching keeps the *fleet* honest in a
   sparse room. Every board also carries its own set of hardware advertising slots, which is the real
