@@ -1,4 +1,5 @@
-# Build the three BAKED Simulacra firmwares in CI, merge each to a single flashable image, and deploy
+# Build the four BAKED Simulacra images in CI (two decoys, and the Vigil once per CYD display
+# revision), merge each to a single flashable image, and deploy
 # the web-flasher (web/ + the freshly-built firmware/) to GitHub Pages -- so binaries never live in git.
 #
 # SETUP (one-time, when you publish): repo Settings -> Pages -> Source = "GitHub Actions". Repo public.
@@ -7,7 +8,7 @@
 #   * ESP32-C5 is new -- the espressif/idf:v5.5 image must have c5 support (it should in 5.5; verify).
 #   * esp-idf-ci-action builds inside the espressif/idf docker; managed_components are fetched at build
 #     (CI has network). If a component pin fails, tweak main/idf_component.yml.
-#   * Each of the 3 builds takes a few minutes. matrix fail-fast is off so one break doesn't hide others.
+#   * Each of the 4 builds takes a few minutes. matrix fail-fast is off so one break doesn't hide others.
 name: web-flasher
 
 on:
@@ -74,6 +75,18 @@ jobs:
             target: esp32
             path: cyd
             magic: SIMULACRA:CTRLSK
+          # Same project, same chip, built again for the OTHER display controller. Two board
+          # revisions ship as ESP32-2432S028 -- ILI9341 on the classic micro-USB board, ST7789 on
+          # the USB-C one -- and the Vigil binds its panel driver at compile time. Both answer
+          # "ESP32", so esp-web-tools cannot tell them apart and the flasher page asks the user
+          # which they have (web/flash.js). Dropping this build does not break the flasher; it
+          # silently leaves USB-C boards with an unreadable screen, which is how it was found.
+          - name: cyd-st7789 # -> firmware/cyd-st7789.bin (Vigil on the USB-C revision's ST7789)
+            idf: v5.4
+            target: esp32
+            path: cyd
+            magic: SIMULACRA:CTRLSK
+            extra: -DSIMULACRA_CYD_ST7789=1
     steps:
       - uses: actions/checkout@v5
 
@@ -117,7 +130,7 @@ jobs:
           path: ${{ matrix.path }}
           command: >-
             idf.py -B build_ci -DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1
-            -DSIMULACRA_FLEET_PROVISION=1 build &&
+            -DSIMULACRA_FLEET_PROVISION=1 ${{ matrix.extra }} build &&
             cd build_ci &&
             esptool.py --chip ${{ matrix.target }} merge_bin -o ../${{ matrix.name }}.bin @flash_args
 
@@ -212,11 +225,12 @@ jobs:
         with:
           path: dl
 
-      - name: Place the three merged bins (manifest uses relative firmware/ paths)
+      - name: Place the four merged bins (manifest uses relative firmware/ paths)
         run: |
-          cp dl/fw-decoy-c5/decoy-c5.bin _site/firmware/decoy-c5.bin
-          cp dl/fw-decoy-c6/decoy-c6.bin _site/firmware/decoy-c6.bin
-          cp dl/fw-cyd/cyd.bin           _site/firmware/cyd.bin
+          cp dl/fw-decoy-c5/decoy-c5.bin       _site/firmware/decoy-c5.bin
+          cp dl/fw-decoy-c6/decoy-c6.bin       _site/firmware/decoy-c6.bin
+          cp dl/fw-cyd/cyd.bin                 _site/firmware/cyd.bin
+          cp dl/fw-cyd-st7789/cyd-st7789.bin   _site/firmware/cyd-st7789.bin
           ls -l _site/firmware
 
       # vigil.html always ships; its wasm may not. The page reports the failure in-place rather

@@ -1,6 +1,17 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_ili9341.h"        // swap to esp_lcd_panel_st7789 if Step 1 says ST7789
+// Panel controller: TWO BOARD REVISIONS SHIP UNDER THE SAME NAME. The classic micro-USB-only
+// ESP32-2432S028R is ILI9341; the later USB-C revision (the "CYD2USB") is ST7789. Nothing else
+// about the display differs -- same pins, same BGR element order, same 240x320, same INVOFF, same
+// big-endian pixel order -- so the whole difference is which panel driver is created below.
+// Checked against DisplayConfig/CYD2USB/User_Setup.h in witnessmenow/ESP32-Cheap-Yellow-Display,
+// which changes only ILI9341_2_DRIVER -> ST7789_DRIVER and keeps TFT_BGR + TFT_INVERSION_OFF.
+// Build the ST7789 image with -DSIMULACRA_CYD_ST7789=1; the default build stays ILI9341.
+#ifdef SIMULACRA_CYD_ST7789
+#include "esp_lcd_panel_st7789.h"    // ships inside esp_lcd, unlike ILI9341's managed component
+#else
+#include "esp_lcd_ili9341.h"
+#endif
 #include "driver/spi_master.h"
 #include "driver/ledc.h"
 #include "driver/gpio.h"
@@ -103,10 +114,22 @@ static bool cyd_panel_init(esp_lcd_panel_handle_t *out)
     if (esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_cfg, &io) != ESP_OK) return false;
     esp_lcd_panel_dev_config_t pc = { .reset_gpio_num=PIN_RST, .rgb_ele_order=LCD_RGB_ELEMENT_ORDER_BGR,
                                       .bits_per_pixel=16 };
-    if (esp_lcd_new_panel_ili9341(io, &pc, out) != ESP_OK) return false;   // or _st7789
+#ifdef SIMULACRA_CYD_ST7789
+    if (esp_lcd_new_panel_st7789(io, &pc, out) != ESP_OK) return false;
+#else
+    if (esp_lcd_new_panel_ili9341(io, &pc, out) != ESP_OK) return false;
+#endif
     esp_lcd_panel_reset(*out); esp_lcd_panel_init(*out);
-    esp_lcd_panel_invert_color(*out, false);       // flip if colors look inverted
-    esp_lcd_panel_mirror(*out, true, false);       // this CYD's ILI9341 default is X-mirrored -> un-mirror text
+    esp_lcd_panel_invert_color(*out, false);       // both revisions want INVOFF (TFT_INVERSION_OFF)
+    // Portrait MADCTL is not the same on the two controllers: TFT_eSPI writes MX|BGR for an
+    // ILI9341 at rotation 0 but BGR alone for an ST7789 (its two rotation headers under
+    // TFT_Drivers). Mirroring X on an ST7789 would come out as mirror-written text, so the
+    // X mirror stays with the ILI9341 only.
+#ifdef SIMULACRA_CYD_ST7789
+    esp_lcd_panel_mirror(*out, false, false);
+#else
+    esp_lcd_panel_mirror(*out, true, false);      // ILI9341 portrait default is X-mirrored
+#endif
     esp_lcd_panel_disp_on_off(*out, true);
     return true;
 }

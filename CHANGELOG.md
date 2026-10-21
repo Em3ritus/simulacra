@@ -3,6 +3,38 @@
 Newest first. Forward-looking milestones live in [`docs/ROADMAP.md`](docs/ROADMAP.md). The README's
 own "Recent updates" section keeps only the latest few entries - this is the full history.
 
+- **Both CYD display revisions are flashable, and the flasher asks which one you have.** A user
+  flashed a board sold as `ESP32-2432S028` and got a screen rotated 90 degrees, with a band along
+  one edge that was never drawn. A video of it rules out most of the obvious causes: the UI renders
+  coherently (fonts, sigils, the two-column HOME grid, the yellow PAIR NEW NODE button all intact,
+  colours correct), and touch still walks the menus, so the firmware, the SPI link, the backlight
+  and the XPT2046 are all fine. Only the panel's address mapping is wrong. Nothing was wrong with
+  their board or the image either: two revisions ship under that one model number with different
+  display controllers, ILI9341 on the classic micro-USB board and ST7789 on the later USB-C one
+  (the "CYD2USB"), and the Vigil binds its panel driver at compile time. A photo of the reporting
+  board settles which one it is: two USB sockets on the bottom edge, a USB-C beside the micro-USB,
+  so it is the ST7789 revision. Checked against `DisplayConfig/CYD2USB/User_Setup.h` in
+  witnessmenow/ESP32-Cheap-Yellow-Display: every pin is identical and so are the BGR element order,
+  the 240x320 geometry, `INVOFF` and the big-endian pixel order, so the whole difference is the
+  driver - plus the mirror, because TFT_eSPI writes `MX|BGR` into MADCTL for an ILI9341 at rotation
+  0 but `BGR` alone for an ST7789, and keeping the X mirror would have produced mirror-written text.
+  The build now takes `-DSIMULACRA_CYD_ST7789=1` and CI publishes a second Vigil image,
+  `firmware/cyd-st7789.bin`. Both revisions identify as a plain ESP32, so esp-web-tools cannot tell
+  them apart and would silently flash whichever build came first in the manifest; the page therefore
+  asks which board you have and drops the other build before anything is downloaded. Verified: both
+  images build and merge under IDF v5.4, each links only its own panel driver (81 ILI9341 references
+  and no ST7789 in one, 62 ST7789 and no ILI9341 in the other), each still carries the two
+  `SIMULACRA:CTRLSK` blocks the browser patches, and a scripted browser run of the real page
+  prepares exactly one ESP32 build per choice, keyed and patched, with the flash button withdrawn
+  when the answer changes. **Not yet run on hardware**: no ST7789 board here, so the ST7789 image is
+  correct by construction and against the reference config, not by having lit a panel. One open
+  question rides on that test. Nothing in this firmware ever sets the MADCTL `MV` bit, so a 90
+  degree rotation is not something the ILI9341 driver asks for; the likely culprit is that driver's
+  vendor init reaching a controller it was not written for, and `0xB6` in particular, which carries
+  scan-direction bits and which the ESP-IDF ST7789 driver never sends at all. If that is right the
+  clean ST7789 init clears the rotation by itself. If the panel is instead genuinely transposed
+  relative to the ILI9341 assumption, the ST7789 build will need `swap_xy(true)` as well. Those two
+  are one reflash apart and cannot be told apart from here.
 - **PAUSE is silent.** It used to freeze the BLE crowd *on air*: `churn_tick` returned before the
   lifecycle ran, so the same four addresses kept advertising for as long as the fleet stayed paused -
   the one long-lived identifier the 15-minute ceiling exists to prevent - while the console reported

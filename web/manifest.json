@@ -19,7 +19,15 @@
       "chipFamily": "ESP32",
       "simulacra_role": "vigil",
       "simulacra_key": "ctrl_sk",
+      "simulacra_panel": "ili9341",
       "parts": [{ "path": "firmware/cyd.bin", "offset": 0 }]
+    },
+    {
+      "chipFamily": "ESP32",
+      "simulacra_role": "vigil",
+      "simulacra_key": "ctrl_sk",
+      "simulacra_panel": "st7789",
+      "parts": [{ "path": "firmware/cyd-st7789.bin", "offset": 0 }]
     }
   ]
 }

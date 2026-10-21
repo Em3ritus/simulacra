@@ -1,9 +1,20 @@
-import json, os, unittest
+import json, os, re, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXPECTED = {"ESP32-C5": "firmware/decoy-c5.bin",
-            "ESP32-C6": "firmware/decoy-c6.bin",
-            "ESP32":    "firmware/cyd.bin"}
+# Keyed by (chipFamily, panel) because chipFamily alone is no longer unique: both CYD board
+# revisions are a plain ESP32 and differ only in their display controller, so esp-web-tools cannot
+# tell them apart and the user picks. flash.js keeps only the build whose panel was chosen, which
+# is what stops two ESP32 builds reaching esp-web-tools (it would silently take the first).
+EXPECTED = {("ESP32-C5", None): "firmware/decoy-c5.bin",
+            ("ESP32-C6", None): "firmware/decoy-c6.bin",
+            ("ESP32", "ili9341"): "firmware/cyd.bin",
+            ("ESP32", "st7789"): "firmware/cyd-st7789.bin"}
+
+PANELS = sorted(p for (_, p) in EXPECTED if p)
+
+
+def key(b):
+    return (b["chipFamily"], b.get("simulacra_panel"))
 
 
 class Manifest(unittest.TestCase):
@@ -15,16 +26,27 @@ class Manifest(unittest.TestCase):
         self.assertTrue(self.m.get("name"))
         self.assertTrue(self.m.get("version"))
 
-    def test_three_expected_chip_families(self):
-        fams = {b["chipFamily"] for b in self.m["builds"]}
-        self.assertEqual(fams, set(EXPECTED), f"chipFamily set wrong: {fams}")
+    def test_expected_builds(self):
+        got = {key(b) for b in self.m["builds"]}
+        self.assertEqual(got, set(EXPECTED), f"build set wrong: {got}")
 
     def test_each_build_single_part_at_zero(self):
         for b in self.m["builds"]:
-            self.assertEqual(len(b["parts"]), 1, f"{b['chipFamily']} must be one merged part")
-            self.assertEqual(b["parts"][0]["offset"], 0, f"{b['chipFamily']} part offset must be 0")
-            self.assertEqual(b["parts"][0]["path"], EXPECTED[b["chipFamily"]],
-                             f"{b['chipFamily']} path wrong")
+            k = key(b)
+            self.assertEqual(len(b["parts"]), 1, f"{k} must be one merged part")
+            self.assertEqual(b["parts"][0]["offset"], 0, f"{k} part offset must be 0")
+            self.assertEqual(b["parts"][0]["path"], EXPECTED[k], f"{k} path wrong")
+
+    def test_only_the_cyd_builds_declare_a_panel(self):
+        """A panel field on a decoy would be filtered against the user's CYD choice and could drop
+        the decoy build entirely; a CYD build without one can never be selected."""
+        for b in self.m["builds"]:
+            if b["chipFamily"] == "ESP32":
+                self.assertIn(b.get("simulacra_panel"), PANELS,
+                              f"CYD build declares no known panel: {b.get('simulacra_panel')}")
+            else:
+                self.assertIsNone(b.get("simulacra_panel"),
+                                  f"{b['chipFamily']} is not a CYD and must not declare a panel")
 
     def test_bins_exist_and_nonempty_when_built(self):
         for b in self.m["builds"]:
@@ -81,10 +103,24 @@ class Manifest(unittest.TestCase):
         for b in self.m["builds"]:
             self.assertIn(b.get("simulacra_key"), ("ctrl_pk", "ctrl_sk"),
                           f"{b['chipFamily']} declares no usable simulacra_key")
-        roles = {b["chipFamily"]: b["simulacra_key"] for b in self.m["builds"]}
-        self.assertEqual(roles["ESP32"], "ctrl_sk", "the CYD is the Vigil and holds the secret")
-        self.assertEqual(roles["ESP32-C5"], "ctrl_pk", "decoys verify only, never sign")
-        self.assertEqual(roles["ESP32-C6"], "ctrl_pk", "decoys verify only, never sign")
+        roles = {key(b): b["simulacra_key"] for b in self.m["builds"]}
+        for panel in PANELS:
+            self.assertEqual(roles[("ESP32", panel)], "ctrl_sk",
+                             f"the {panel} CYD is a Vigil and holds the secret")
+        self.assertEqual(roles[("ESP32-C5", None)], "ctrl_pk", "decoys verify only, never sign")
+        self.assertEqual(roles[("ESP32-C6", None)], "ctrl_pk", "decoys verify only, never sign")
+
+    def test_page_offers_exactly_the_panels_the_manifest_ships(self):
+        """The chooser and the manifest have to agree. A panel offered on the page with no build
+        behind it prepares nothing and the flash button never appears; a build with no way to pick
+        it is dead weight the user cannot reach."""
+        with open(os.path.join(HERE, "index.html")) as f:
+            html = f.read()
+        offered = set(re.findall(r'name="cyd-panel"[^>]*\bvalue="([a-z0-9]+)"', html))
+        self.assertEqual(offered, set(PANELS), f"page offers panels {offered}, manifest has {set(PANELS)}")
+        self.assertIn("simulacra_panel", open(os.path.join(HERE, "flash.js")).read(),
+                      "flash.js no longer filters builds by panel, so both CYD images would be "
+                      "handed to esp-web-tools and it would flash whichever came first")
 
 
 if __name__ == "__main__":

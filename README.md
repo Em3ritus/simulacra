@@ -218,7 +218,11 @@ the lower-power/everyday-carry variant.
   an ADC divider on GPIO6 rather than the I2C gauge some boards carry.
 - **ESP32-C6** (Shade) - fully supported alternative decoy, leaner and lower-power for
   everyday-carry.
-- **ESP32** "Cheap Yellow Display" (ILI9341 + XPT2046 touch + microSD) for Vigil.
+- **ESP32** "Cheap Yellow Display" (ILI9341 **or** ST7789 panel + XPT2046 touch + microSD) for
+  Vigil. Both revisions sold as ESP32-2432S028 work, but they need different images, so the
+  [flasher](https://em3ritus.github.io/simulacra/) asks which you have: micro-USB only is ILI9341,
+  a board with a USB-C port as well is the ST7789 "CYD2USB". Capacitive-touch variants are not
+  supported - the touch driver is XPT2046 only.
 
 Specific boards and part numbers: see [`web/README.md`](web/README.md)'s board table. For what
 every screen and setting on the Vigil console does once it's flashed, see the
@@ -361,6 +365,13 @@ Each tool has its own README with build and run steps.
 Newest first - full history in [`CHANGELOG.md`](CHANGELOG.md). Forward-looking milestones live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+- **Both CYD display revisions are flashable now, and the flasher asks which you have.** A board
+  sold as `ESP32-2432S028` came up rotated 90 degrees, with a strip down one side never drawn. Two
+  revisions ship under that model number with different display controllers - ILI9341 on the classic
+  micro-USB board, ST7789 on the later USB-C one - and the Vigil picks its panel driver at compile
+  time, so the settings that make one work break the other. There is a second image for the ST7789
+  revision now, and because both boards identify as a plain ESP32 the page asks which one you have
+  rather than guessing. Built and verified in a browser; not yet lit up on an ST7789 panel.
 - **Flashing and pairing fixed for the boards people actually have.** Every ESP32-C5 sold today is
   revision v1.2, which the flasher's upstream serial library could not identify, so it stopped at
   "Failed to initialize" before writing a byte; the flasher now serves its own ESP Web Tools build

@@ -30,8 +30,11 @@ idf_component_register(
 
 # Forward build-time gate flags passed via `idf.py -DFLAG=VALUE` to the C preprocessor,
 # mirroring main/CMakeLists.txt. SIMULACRA_CONFIG_CTRL enables the Vigil CONTROL page + SEND;
-# SIMULACRA_FLEET_PROVISION enables enrollment authority; FLEET_SELFTEST runs fleet_db checks.
-foreach(flag SIMULACRA_CONFIG_CTRL SIMULACRA_FLEET_PROVISION FLEET_SELFTEST)
+# SIMULACRA_FLEET_PROVISION enables enrollment authority; FLEET_SELFTEST runs fleet_db checks;
+# SIMULACRA_CYD_ST7789 builds for the USB-C board revision's ST7789 panel instead of ILI9341 (see
+# the comment at the top of cyd_main.c). That flag is the ONLY difference between the flasher's
+# cyd.bin and cyd-st7789.bin.
+foreach(flag SIMULACRA_CONFIG_CTRL SIMULACRA_FLEET_PROVISION FLEET_SELFTEST SIMULACRA_CYD_ST7789)
     if(DEFINED ${flag})
         target_compile_definitions(${COMPONENT_LIB} PRIVATE ${flag}=${${flag}})
     endif()

@@ -62,6 +62,14 @@
   button.act.ghost:hover { background:#1d1926; color:var(--bone); }
   button.act:disabled { opacity:.5; cursor:default; }
 
+  fieldset.panel { border:1px solid var(--edge); border-radius:.4rem; margin:0 0 1rem;
+                   padding:.5rem .9rem .9rem; }
+  fieldset.panel legend { font:600 .75rem/1 var(--mono); letter-spacing:.18em; color:var(--ash);
+                          text-transform:uppercase; padding:0 .4rem; }
+  fieldset.panel label { display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap;
+                         color:var(--bone); font-size:.95rem; padding:.3rem 0; cursor:pointer; }
+  fieldset.panel label span { font-family:var(--mono); font-size:.8rem; color:var(--ash); }
+  fieldset.panel .hint { color:var(--ash); font-size:.85rem; margin:.6rem 0 0; }
   .kv { font-family:var(--mono); color:var(--ash); font-size:.9rem; margin:0 0 .75rem; }
   .kv code { color:var(--channel); font-size:1rem; letter-spacing:.06em; }
   .status { font-family:var(--mono); font-size:.85rem; color:var(--ash); margin:.5rem 0 1rem; }
@@ -124,9 +132,26 @@
     <p class="need">You need at least one decoy board (<code>Waveshare ESP32-C5-WIFI6-KIT</code>
        suggested - dual-band and it takes/charges its own battery, and it is the board the project is
        developed on; <code>ESP32-C6</code> also fully supported) and one controller
-       (<code>ESP32-2432S028</code>, the "CYD" display). Plug in each board and flash it - the chip is
-       detected and the right role is installed automatically. Flash every board from this same page
-       so they all share the one key.</p>
+       (<code>ESP32-2432S028R</code>, the "CYD" display - both of its display revisions work, pick
+       yours below). Plug in each board and flash it - the chip is detected and the right role is
+       installed automatically. Flash every board from this same page so they all share the one
+       key.</p>
+
+    <!-- The one thing the browser cannot work out for itself. esp-web-tools identifies the chip,
+         and both CYD revisions answer "ESP32" while carrying different display controllers, so
+         nothing on the wire says which panel is fitted (see flash.js). Asked here rather than
+         guessed, because a wrong guess is a board that boots to an unreadable screen. -->
+    <fieldset class="panel">
+      <legend>Which CYD do you have?</legend>
+      <label><input type="radio" name="cyd-panel" value="ili9341" checked>
+        <b>Micro-USB only</b><span>ESP32-2432S028R &middot; ILI9341 panel</span></label>
+      <label><input type="radio" name="cyd-panel" value="st7789">
+        <b>Has a USB-C port too</b><span>the "CYD2USB" revision &middot; ST7789 panel</span></label>
+      <p class="hint">Count the sockets on the board, not the cable you are using. Only the display
+        controller differs between the two, so if the screen comes up sideways, mirrored or part
+        unpainted after flashing, you picked the wrong one - flash the other and nothing is
+        harmed.</p>
+    </fieldset>
 
     <p class="need" id="need-key">Generate or import a key above to continue.</p>
 
@@ -197,6 +222,12 @@ const el = {
 let kp = null;          // current keypair
 let prepared = null;    // last prepared manifest, so its blob URLs can be released
 
+// Which CYD display revision the user says they have. Prepared images are built for one panel only,
+// so changing the answer has to throw them away exactly as changing the key does -- otherwise the
+// page would hand esp-web-tools an image for the panel that was selected a moment ago.
+const panelRadios = [...document.getElementsByName("cyd-panel")];
+const chosenPanel = () => panelRadios.find((r) => r.checked)?.value;
+
 function say(msg, cls = "") {
   el.status.hidden = false;
   el.status.textContent = msg;
@@ -228,6 +259,8 @@ function setKey(next) {
   if (kp) keygen.save(kp); else keygen.forget();
   render();
 }
+
+panelRadios.forEach((r) => r.addEventListener("change", invalidatePrepared));
 
 el.gen.addEventListener("click", () => {
   try {
@@ -270,7 +303,7 @@ el.prepare.addEventListener("click", async () => {
   invalidatePrepared();
   el.prepare.disabled = true;
   try {
-    prepared = await prepareManifest("manifest.json", kp, (m) => say(m));
+    prepared = await prepareManifest("manifest.json", kp, chosenPanel(), (m) => say(m));
     // esp-web-tools reads the manifest when activated, so handing it the blob URL is enough.
     el.install.manifest = prepared.url;
     el.install.setAttribute("manifest", prepared.url);
