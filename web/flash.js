@@ -16,6 +16,14 @@
 //   is the only thing that can sign an enrollment offer or a command. The mapping lives in
 //   manifest.json next to the paths rather than as a chipFamily switch in here, so adding a board
 //   is one manifest entry and not an edit in two files.
+//
+// WHY A PANEL HAS TO BE CHOSEN BY HAND
+//   Two CYD revisions ship under the same ESP32-2432S028 name with different display controllers
+//   (ILI9341 on the classic micro-USB board, ST7789 on the USB-C one), and the firmware binds its
+//   panel driver at compile time. Both are a plain ESP32 on the wire, so the chip identification
+//   esp-web-tools does cannot tell them apart -- and handed two builds with the same chipFamily it
+//   would quietly flash whichever came first. So the user says which board they have, and the
+//   build that does not match is dropped here, before anything is downloaded or flashed.
 
 import { patchKey } from "./keypatch.js";
 
@@ -50,17 +58,33 @@ async function prepareBuild(build, manifestURL, kp, onProgress) {
  * Download every build, patch each with `kp`, and return a blob: URL for a manifest that points at
  * the patched images. Hand that to esp-web-tools in place of the static manifest.
  *
- * All three are prepared even though only one gets flashed, because which one is needed is not
- * known until the chip has been read, and by then it is too late to fetch anything.
+ * Every surviving build is prepared even though only one gets flashed, because which one is needed
+ * is not known until the chip has been read, and by then it is too late to fetch anything.
+ *
+ * `panel` is the CYD display controller the user picked ("ili9341" | "st7789"). A build naming a
+ * different one is dropped; a build naming none (either decoy) is always kept.
  */
-export async function prepareManifest(manifestPath, kp, onProgress = () => {}) {
+export async function prepareManifest(manifestPath, kp, panel, onProgress = () => {}) {
   const manifestURL = new URL(manifestPath, location.href).toString();
   const resp = await fetch(manifestURL, { cache: "no-store" });
   if (!resp.ok) throw new Error(`could not read the manifest: HTTP ${resp.status}`);
   const manifest = await resp.json();
 
+  const wanted = manifest.builds.filter((b) => !b.simulacra_panel || b.simulacra_panel === panel);
+  if (manifest.builds.some((b) => b.simulacra_panel) && !wanted.some((b) => b.simulacra_panel)) {
+    throw new Error(`no firmware for a "${panel}" display, so a CYD could not be flashed`);
+  }
+  // Fail loudly rather than leave the choice to manifest order. If two builds for one chipFamily
+  // ever survive the filter, which one gets flashed is decided by whichever came first, and for the
+  // CYD that is a flash that looks fine and lights up the wrong panel driver -- the exact failure
+  // this filter exists to prevent. Cheaper to catch here than on someone's bench.
+  const fams = wanted.map((b) => b.chipFamily);
+  if (new Set(fams).size !== fams.length) {
+    throw new Error(`manifest has two builds for one chip after choosing "${panel}"`);
+  }
+
   const builds = [];
-  for (const b of manifest.builds) {
+  for (const b of wanted) {
     builds.push(await prepareBuild(b, manifestURL, kp, onProgress));
   }
   onProgress("ready");

@@ -8,7 +8,8 @@ and the correct role is installed:
 |---|---|---|
 | Waveshare ESP32-C5-WIFI6-KIT - **suggested** | ESP32-C5 | Ward decoy |
 | SparkFun Thing Plus ESP32-C6 | ESP32-C6 | Shade decoy |
-| CYD - ESP32-2432S028 (2.8" ESP32 display) | ESP32 (classic) | Vigil controller |
+| CYD - ESP32-2432S028R, micro-USB only (ILI9341) | ESP32 (classic) | Vigil controller |
+| CYD - ESP32-2432S028 with a USB-C port, the "CYD2USB" (ST7789) | ESP32 (classic) | Vigil controller |
 
 **The Waveshare ESP32-C5-WIFI6-KIT is the suggested decoy board** - dual-band, and it takes and
 charges its own battery. That is the specific board the project is developed and tested on; any
@@ -16,6 +17,14 @@ ESP32-C5 runs the same firmware, but battery sensing is board-specific, so a dif
 its own wiring. ESP32-C6 remains fully supported for anyone who wants the lower-power/
 everyday-carry variant.
 A minimal fleet is **one decoy + one CYD**. Flash each board in turn.
+
+**The two CYD rows are the same model number with different screens inside.** The classic board is
+ILI9341, the later revision with a USB-C socket alongside the micro-USB one is ST7789, and the
+Vigil's display driver is fixed when the image is built - so there are two Vigil images and the
+page asks which board you have before it prepares them. Both boards answer "ESP32" when the
+flasher identifies the chip, which is why it cannot pick for you. Getting it wrong costs nothing
+but a reflash: the screen comes up sideways, mirrored or part unpainted, and the other image fixes
+it. Count the sockets on the board itself rather than going by the cable you happen to be using.
 
 ## Regime: provisioned, keyed in your browser
 

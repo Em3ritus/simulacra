@@ -1,7 +1,7 @@
 <#
-.SYNOPSIS  Build the three PROVISIONED Simulacra firmwares and merge each into one flashable image
-           for the web-flasher (web/firmware/*.bin). -Serve hosts web/ on localhost for a browser
-           flash test.
+.SYNOPSIS  Build the four PROVISIONED Simulacra images (two decoys and the Vigil once per CYD
+           display revision) and merge each into one flashable image for the web-flasher
+           (web/firmware/*.bin). -Serve hosts web/ on localhost for a browser flash test.
 
 .DESCRIPTION
   Mirrors .github/workflows/flasher.yml exactly, including the build flags, so a local flash test
@@ -38,11 +38,19 @@ New-Item -ItemType Directory -Force $fw | Out-Null
 $FLAGS = "-DSIMULACRA_ESPNOW=1 -DSIMULACRA_CONFIG_CTRL=1 -DSIMULACRA_FLEET_PROVISION=1"
 $PY = "C:\Program Files\Python312"
 
-# target, chip, IDF version, project dir (relative to repo root), output name
+# target, chip, IDF version, project dir (relative to repo root), output name, and -- for a second
+# build of the same chip -- a build-dir suffix and the extra flags that make it different.
+#
+# The two CYD entries are the same project and chip built twice: the Vigil binds its display driver
+# at compile time and the two board revisions sold as ESP32-2432S028 carry different controllers
+# (ILI9341 on the classic micro-USB board, ST7789 on the USB-C one). They need separate build dirs
+# because IDF -D flags are sticky, so a shared one would leave whichever ran last in both images.
 $targets = @(
     @{ t="c5";  chip="esp32c5"; idf="v5.5"; proj=".";   out="decoy-c5.bin" },
     @{ t="c6";  chip="esp32c6"; idf="v5.4"; proj=".";   out="decoy-c6.bin" },
-    @{ t="cyd"; chip="esp32";   idf="v5.4"; proj="cyd"; out="cyd.bin" }
+    @{ t="cyd"; chip="esp32";   idf="v5.4"; proj="cyd"; out="cyd.bin" },
+    @{ t="cyd-st7789"; chip="esp32"; idf="v5.4"; proj="cyd"; out="cyd-st7789.bin";
+       suffix="_st7789"; extra="-DSIMULACRA_CYD_ST7789=1" }
 )
 
 foreach ($x in $targets) {
@@ -58,7 +66,9 @@ foreach ($x in $targets) {
     # PROJECT root, so a plain `-B build_ci set-target` would still rewrite the bench's sdkconfig and
     # leave the next bench flash on the wrong chip or regime. C5 and C6 also share the root project,
     # so one shared build_ci would carry a stale target from whichever ran last.
-    $bdir = "build_ci_$($x.chip)"
+    # Missing keys interpolate to empty, so the three single-build targets keep the exact build-dir
+    # names (and therefore the warm ccache) they had before the second CYD image existed.
+    $bdir = "build_ci_$($x.chip)$($x.suffix)"
     $child = @"
 # export.ps1 needs IDF_PATH pointed at ITS OWN checkout, and idf.py needs a python on PATH before
 # the export runs. Without both, idf.py is simply not a recognised command and the build dies with
@@ -67,7 +77,7 @@ foreach ($x in $targets) {
 `$env:PATH = '$PY;$PY\Scripts;' + `$env:PATH
 & '$exportPs1' *> `$null
 Set-Location '$projAbs'
-idf.py -B $bdir -DIDF_TARGET=$($x.chip) -DSDKCONFIG=$bdir/sdkconfig $FLAGS build
+idf.py -B $bdir -DIDF_TARGET=$($x.chip) -DSDKCONFIG=$bdir/sdkconfig $FLAGS $($x.extra) build
 if (`$LASTEXITCODE -ne 0) { exit 1 }
 Set-Location (Join-Path '$projAbs' '$bdir')
 python -m esptool --chip $($x.chip) merge_bin -o '$outAbs' '@flash_args'
@@ -76,7 +86,7 @@ exit `$LASTEXITCODE
     # Run from a real script file rather than `-Command <multi-line string>`. Passing a whole script
     # as one -Command argument makes quoting and line handling the caller's problem, and the symptom
     # when it goes wrong is a build that dies claiming idf.py does not exist.
-    $childPs1 = Join-Path ([IO.Path]::GetTempPath()) "simulacra_build_$($x.chip).ps1"
+    $childPs1 = Join-Path ([IO.Path]::GetTempPath()) "simulacra_build_$($x.t).ps1"
     Set-Content -Path $childPs1 -Value $child -Encoding utf8
     powershell -NoProfile -ExecutionPolicy Bypass -File $childPs1
     # Keep the generated script when it fails: the whole point of generating it is that you can run
